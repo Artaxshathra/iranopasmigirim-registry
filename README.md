@@ -59,6 +59,30 @@ https://hls.irannrtv.live/hls/stream.m3u8
 
 H.264 High 1280×720 25fps, AAC-LC 48 kHz stereo, 5-second TS segments.
 
+## Testing
+
+Tests use the Node.js built-in test runner (zero dependencies).
+
+```bash
+# From repo root
+npm test
+
+# Or from the extension directory
+cd extensions/inrtv
+npm test
+```
+
+Test suites:
+
+| Suite | What it checks |
+|-------|----------------|
+| `manifest.test.js` | MV3 structure, permissions, CSP, icons, i18n |
+| `html.test.js` | Accessibility, structure, asset references |
+| `security.test.js` | No innerHTML/eval/http, no inline handlers, URL consistency |
+| `player-logic.test.js` | Strict mode, cleanup, keyboard, aria-label updates |
+| `build.test.js` | Zip contents, license banner, Firefox gecko settings |
+| `bootstrap.test.js` | SHA-256 pinning, script integrity |
+
 ## Privacy
 
 This extension collects **no data**. See the full [privacy policy](docs/privacy-policy.html).

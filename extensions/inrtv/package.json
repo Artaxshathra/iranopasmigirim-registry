@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "build": "bash build.sh"
+    "build": "bash build.sh",
+    "test": "node --test 'test/*.test.js'"
   }
 }
