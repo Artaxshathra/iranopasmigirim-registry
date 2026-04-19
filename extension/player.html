@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>INRTV Live</title>
+  <link rel="stylesheet" href="player.css">
+</head>
+<body>
+  <div id="player-container">
+    <video id="video" playsinline></video>
+
+    <div id="branding" class="branding">INRTV</div>
+
+    <div id="controls">
+      <button id="btn-play" class="ctrl" title="Play / Pause (k)">▶</button>
+      <button id="btn-mute" class="ctrl" title="Mute (m)">🔊</button>
+      <input id="volume" type="range" min="0" max="1" step="0.05" value="1">
+      <div class="spacer"></div>
+      <span id="stats" class="stats"></span>
+      <span id="badge-live" class="badge live">LIVE</span>
+      <button id="btn-pip" class="ctrl" title="Picture-in-Picture (p)">⧉</button>
+      <button id="btn-fs" class="ctrl" title="Fullscreen (f)">⛶</button>
+    </div>
+
+    <div id="overlay-error" hidden>
+      <p id="error-msg">Connection lost. Retrying...</p>
+    </div>
+
+    <div id="overlay-loading">
+      <div class="spinner"></div>
+    </div>
+  </div>
+
+  <script src="lib/hls.min.js"></script>
+  <script src="player.js"></script>
+</body>
+</html>

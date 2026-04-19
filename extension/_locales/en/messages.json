@@ -1,0 +1,10 @@
+{
+  "extName": {
+    "message": "INRTV Live",
+    "description": "Extension name"
+  },
+  "extDescription": {
+    "message": "Watch Iran National Revolution TV live in your browser. One click, no ads, no tracking.",
+    "description": "Extension description shown in the store"
+  }
+}

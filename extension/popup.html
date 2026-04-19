@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="header">
+    <img src="icons/icon48.png" class="logo" alt="">
+    <div>
+      <h1>INRTV Live</h1>
+      <p class="status" id="status"></p>
+    </div>
+  </div>
+
+  <div class="hero">
+    <button id="btn-watch" class="btn btn-watch">▶ Watch Live</button>
+    <div class="hero-actions">
+      <button id="btn-m3u" class="btn btn-secondary btn-sm" title="Copy M3U playlist for VLC / IPTV apps">Copy M3U</button>
+      <button id="btn-copy" class="btn btn-secondary btn-sm" title="Copy stream URL">Copy URL</button>
+      <button id="btn-site" class="btn btn-secondary btn-sm" title="Open INRTV website">Website</button>
+    </div>
+  </div>
+
+  <div id="detected" class="detected" hidden>
+    <div class="detected-header">
+      <span id="detected-label">Detected streams</span>
+      <button id="btn-toggle" class="btn-link">Show ▾</button>
+    </div>
+    <div id="stream-list" class="stream-list" hidden></div>
+  </div>
+
+  <script src="utils.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
