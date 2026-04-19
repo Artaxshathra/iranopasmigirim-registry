@@ -1,5 +1,6 @@
 'use strict';
 
+// Stream URL — single source of truth (also in manifest.json host_permissions)
 var STREAM_URL = 'https://hls.irannrtv.live/hls/stream.m3u8';
 
 var video = document.getElementById('video');
@@ -83,6 +84,10 @@ function loadHls(url) {
 function loadNative(url) {
   video.src = url;
   video.addEventListener('canplay', function () {
+    hideError();
+    hideLoading();
+  });
+  video.addEventListener('canplay', function () {
     video.play().catch(function () {});
     hideLoading();
   }, { once: true });
@@ -132,8 +137,14 @@ function setupControls() {
   btnPip.addEventListener('click', togglePip);
   btnFs.addEventListener('click', toggleFullscreen);
 
-  video.addEventListener('play', function () { btnPlay.textContent = '⏸'; });
-  video.addEventListener('pause', function () { btnPlay.textContent = '▶'; });
+  video.addEventListener('play', function () {
+    btnPlay.textContent = '⏸';
+    btnPlay.setAttribute('aria-label', 'Pause');
+  });
+  video.addEventListener('pause', function () {
+    btnPlay.textContent = '▶';
+    btnPlay.setAttribute('aria-label', 'Play');
+  });
 
   if (!document.pictureInPictureEnabled) btnPip.hidden = true;
 
@@ -154,11 +165,13 @@ function setupKeyboard() {
         e.preventDefault();
         video.volume = Math.min(1, video.volume + 0.1);
         volumeSlider.value = video.volume;
+        if (video.muted) { video.muted = false; updateMuteIcon(); }
         break;
       case 'ArrowDown':
         e.preventDefault();
         video.volume = Math.max(0, video.volume - 0.1);
         volumeSlider.value = video.volume;
+        if (video.muted) { video.muted = false; updateMuteIcon(); }
         break;
     }
   });
@@ -176,6 +189,7 @@ function toggleMute() {
 
 function updateMuteIcon() {
   btnMute.textContent = video.muted ? '🔇' : '🔊';
+  btnMute.setAttribute('aria-label', video.muted ? 'Unmute' : 'Mute');
 }
 
 function togglePip() {
@@ -197,5 +211,12 @@ function showError(msg) {
 
 function hideError() { overlayError.hidden = true; }
 function hideLoading() { overlayLoading.hidden = true; }
+
+// --- Cleanup ---
+
+window.addEventListener('pagehide', function () {
+  if (statsInterval) { clearInterval(statsInterval); statsInterval = null; }
+  if (hls) { hls.destroy(); hls = null; }
+});
 
 init();

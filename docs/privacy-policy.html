@@ -24,34 +24,29 @@
 <p>This extension collects <strong>no data whatsoever</strong>. Specifically:</p>
 <ul>
   <li>No browsing history is collected or transmitted</li>
-  <li>No IP addresses are logged</li>
+  <li>No IP addresses are logged by the extension</li>
   <li>No analytics or tracking of any kind</li>
   <li>No user accounts or authentication</li>
   <li>No cookies are set by the extension</li>
-  <li>No third-party services, SDKs, or analytics tools are used</li>
+  <li>No local storage, session storage, or any browser storage APIs are used</li>
+  <li>No third-party services, SDKs, or analytics tools are included</li>
 </ul>
-
-<h2>Local Storage</h2>
-<p>The extension uses the browser's session storage API to temporarily remember detected stream URLs while the browser is open. This data is stored locally on your device only, is never transmitted anywhere, and is automatically cleared when the browser is closed.</p>
-
-<h2>Network Requests</h2>
-<p>The extension makes network requests only to:</p>
-<ul>
-  <li><strong>iranopasmigirim.com</strong> — the official INRTV website (only when you visit it)</li>
-  <li><strong>hls.irannrtv.live</strong> — the live stream server (only when you choose to watch)</li>
-</ul>
-<p>No data is sent to any other servers. No information about your viewing habits is transmitted.</p>
 
 <h2>Permissions</h2>
+<p>The extension requests <strong>no browser permissions</strong> (no <code>storage</code>, no <code>activeTab</code>, no <code>tabs</code>). The only declaration is:</p>
 <ul>
-  <li><strong>storage</strong>: Used to temporarily store detected stream URLs in session storage (local only, cleared on browser close)</li>
-  <li><strong>activeTab</strong>: Used to detect video streams on the current page when you click the extension icon</li>
-  <li><strong>Host permission (iranopasmigirim.com)</strong>: Allows the extension to detect the live stream on the official website</li>
-  <li><strong>Host permission (hls.irannrtv.live)</strong>: Allows the player to load the live video stream</li>
+  <li><strong>Host permission (<code>https://hls.irannrtv.live/*</code>)</strong>: Allows the built-in player to load the live video stream from the INRTV streaming server. This is the only network destination the extension contacts.</li>
 </ul>
 
+<h2>Network Requests</h2>
+<p>The extension makes network requests to exactly one domain:</p>
+<ul>
+  <li><strong>hls.irannrtv.live</strong> — the INRTV live stream server, contacted only when you click "Watch Live" to start playback.</li>
+</ul>
+<p>The popup contains a link to <strong>iranopasmigirim.com</strong> (the official INRTV website). Clicking this link opens the site in a normal browser tab — this is a standard navigation, not an extension-initiated network request. No data is sent to this domain by the extension.</p>
+
 <h2>Third-Party Code</h2>
-<p>The extension bundles <a href="https://github.com/video-dev/hls.js">hls.js</a> (MIT license) for HLS video playback. This library runs entirely within your browser and makes no external requests beyond loading the video stream segments you choose to watch.</p>
+<p>The extension bundles <a href="https://github.com/video-dev/hls.js">hls.js</a> (MIT license) for HLS video playback. This library runs entirely within your browser and makes no external requests beyond loading the video stream segments from <code>hls.irannrtv.live</code> when you choose to watch.</p>
 
 <h2>Changes</h2>
 <p>If this policy is ever updated, changes will be noted here with a revised date.</p>

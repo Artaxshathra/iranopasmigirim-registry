@@ -5,7 +5,7 @@
   "description": "__MSG_extDescription__",
   "default_locale": "en",
 
-  "host_permissions": ["*://hls.irannrtv.live/*"],
+  "host_permissions": ["https://hls.irannrtv.live/*"],
 
   "action": {
     "default_popup": "popup.html",
@@ -23,6 +23,6 @@
   },
 
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'none'"
+    "extension_pages": "script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
   }
 }

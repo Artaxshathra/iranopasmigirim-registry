@@ -17,7 +17,8 @@ zip -r "../$DIST/inrtv-chrome.zip" \
   manifest.json \
   popup.html popup.js popup.css \
   player.html player.js player.css \
-  lib/ icons/ _locales/
+  lib/ icons/ _locales/ \
+  -x "*.DS_Store"
 cd ..
 
 # --- Firefox (add gecko id) ---
@@ -25,6 +26,7 @@ echo "Building Firefox extension..."
 FF="$DIST/_firefox"
 mkdir -p "$FF"
 cp -r "$SRC"/* "$FF/"
+cp LICENSE "$FF/"
 
 node -e "
 var fs = require('fs');
@@ -34,7 +36,12 @@ fs.writeFileSync('$FF/manifest.json', JSON.stringify(m, null, 2));
 "
 
 cd "$FF"
-zip -r "../inrtv-firefox.zip" .
+zip -r "../inrtv-firefox.zip" \
+  manifest.json LICENSE \
+  popup.html popup.js popup.css \
+  player.html player.js player.css \
+  lib/ icons/ _locales/ \
+  -x "*.DS_Store"
 cd ../..
 rm -rf "$FF"
 

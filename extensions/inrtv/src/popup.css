@@ -87,7 +87,7 @@ body {
 
 .site-link {
   font-size: 12px;
-  color: #555;
+  color: #999;
   text-decoration: none;
   transition: color 0.15s;
 }
@@ -103,6 +103,6 @@ body {
 .trust {
   margin-top: 10px;
   font-size: 10px;
-  color: #333;
+  color: #888;
   letter-spacing: 0.3px;
 }
