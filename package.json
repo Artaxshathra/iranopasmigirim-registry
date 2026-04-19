@@ -1,9 +1,14 @@
 {
-  "name": "inrtv-extension",
+  "name": "ipm",
   "version": "0.1.0",
   "private": true,
+  "workspaces": [
+    "extensions/*",
+    "apps/*",
+    "shared"
+  ],
   "scripts": {
-    "test": "node --test tests/",
-    "build": "bash build.sh"
+    "test": "npm test --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present"
   }
 }

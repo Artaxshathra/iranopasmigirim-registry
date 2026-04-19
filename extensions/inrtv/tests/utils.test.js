@@ -1,6 +1,6 @@
 var { describe, it } = require('node:test');
 var assert = require('node:assert/strict');
-var utils = require('../extension/utils.js');
+var utils = require('../src/utils.js');
 
 // --- classifyUrl ---
 

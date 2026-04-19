@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Run from the directory this script lives in
+cd "$(dirname "$0")"
+
 DIST="dist"
-EXT="extension"
+SRC="src"
 
 rm -rf "$DIST"
 mkdir -p "$DIST"
 
 # --- Chrome ---
 echo "Building Chrome extension..."
-cd "$EXT"
+cd "$SRC"
 zip -r "../$DIST/inrtv-chrome.zip" \
   manifest.json utils.js background.js content.js inject.js \
   popup.html popup.js popup.css \
@@ -21,7 +24,7 @@ cd ..
 echo "Building Firefox extension..."
 FF="$DIST/_firefox"
 mkdir -p "$FF"
-cp -r "$EXT"/* "$FF/"
+cp -r "$SRC"/* "$FF/"
 
 node -e "
 var fs = require('fs');
@@ -38,5 +41,5 @@ rm -rf "$FF"
 
 echo ""
 echo "Done:"
-echo "  $DIST/inrtv-chrome.zip"
-echo "  $DIST/inrtv-firefox.zip"
+echo "  extensions/inrtv/$DIST/inrtv-chrome.zip"
+echo "  extensions/inrtv/$DIST/inrtv-firefox.zip"
