@@ -5,26 +5,7 @@
   "description": "__MSG_extDescription__",
   "default_locale": "en",
 
-  "permissions": ["storage", "activeTab"],
-  "host_permissions": ["*://iranopasmigirim.com/*", "*://hls.irannrtv.live/*"],
-
-  "background": {
-    "service_worker": "background.js"
-  },
-
-  "content_scripts": [
-    {
-      "matches": ["*://iranopasmigirim.com/*"],
-      "js": ["utils.js", "content.js"],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": ["*://iranopasmigirim.com/*"],
-      "js": ["inject.js"],
-      "run_at": "document_start",
-      "world": "MAIN"
-    }
-  ],
+  "host_permissions": ["*://hls.irannrtv.live/*"],
 
   "action": {
     "default_popup": "popup.html",

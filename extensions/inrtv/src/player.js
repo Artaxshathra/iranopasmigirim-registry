@@ -1,5 +1,7 @@
 'use strict';
 
+var STREAM_URL = 'https://hls.irannrtv.live/hls/stream.m3u8';
+
 var video = document.getElementById('video');
 var btnPlay = document.getElementById('btn-play');
 var btnMute = document.getElementById('btn-mute');
@@ -17,33 +19,20 @@ var statsInterval = null;
 
 // --- Init ---
 
-async function init() {
-  var result = await chrome.storage.session.get('playerStream');
-  var stream = result.playerStream;
-
-  if (!stream || !stream.url) {
-    showError('No stream URL. Open a stream from the popup first.');
+function init() {
+  if (typeof Hls !== 'undefined' && Hls.isSupported()) {
+    loadHls(STREAM_URL);
+  } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+    loadNative(STREAM_URL);
+  } else {
+    showError('Your browser does not support HLS playback.');
     return;
   }
-
-  document.title = 'INRTV Live';
-  loadStream(stream);
   setupControls();
   setupKeyboard();
 }
 
 // --- Stream loading ---
-
-function loadStream(stream) {
-  if ((stream.type === 'hls' || stream.url.indexOf('.m3u8') !== -1) &&
-      typeof Hls !== 'undefined' && Hls.isSupported()) {
-    loadHls(stream.url);
-  } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-    loadNative(stream.url);
-  } else {
-    loadNative(stream.url);
-  }
-}
 
 function loadHls(url) {
   hls = new Hls({

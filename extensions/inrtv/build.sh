@@ -14,13 +14,13 @@ mkdir -p "$DIST"
 echo "Building Chrome extension..."
 cd "$SRC"
 zip -r "../$DIST/inrtv-chrome.zip" \
-  manifest.json utils.js background.js content.js inject.js \
+  manifest.json \
   popup.html popup.js popup.css \
   player.html player.js player.css \
   lib/ icons/ _locales/
 cd ..
 
-# --- Firefox (swap service_worker → scripts, add gecko id) ---
+# --- Firefox (add gecko id) ---
 echo "Building Firefox extension..."
 FF="$DIST/_firefox"
 mkdir -p "$FF"
@@ -29,7 +29,6 @@ cp -r "$SRC"/* "$FF/"
 node -e "
 var fs = require('fs');
 var m = JSON.parse(fs.readFileSync('$FF/manifest.json', 'utf8'));
-m.background = { scripts: ['background.js'] };
 m.browser_specific_settings = { gecko: { id: 'inrtv@extension', strict_min_version: '128.0' } };
 fs.writeFileSync('$FF/manifest.json', JSON.stringify(m, null, 2));
 "

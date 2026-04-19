@@ -1,158 +1,108 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
-[hidden] { display: none !important; }
 
 body {
-  width: 340px;
+  width: 320px;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-  font-size: 13px;
+  background: #121220;
   color: #e0e0e0;
-  background: #1a1a2e;
+  -webkit-font-smoothing: antialiased;
 }
+
+.popup { padding: 20px; }
 
 /* --- Header --- */
 
 .header {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 14px 16px 10px;
+  gap: 14px;
+  margin-bottom: 24px;
 }
 
-.logo { width: 32px; height: 32px; }
+.logo {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+}
 
 .header h1 {
-  font-size: 15px;
-  font-weight: 600;
+  font-size: 17px;
+  font-weight: 700;
   color: #fff;
+  line-height: 1.2;
 }
 
-.status {
+.live-dot {
+  display: inline-block;
   font-size: 11px;
-  color: #888;
+  font-weight: 600;
+  color: #c41e3a;
   margin-top: 2px;
+  animation: pulse 2s ease-in-out infinite;
 }
 
-/* --- Hero (Watch Live) --- */
-
-.hero {
-  padding: 8px 16px 14px;
-  text-align: center;
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
 }
+
+/* --- Watch button --- */
 
 .btn-watch {
+  display: block;
   width: 100%;
-  padding: 12px;
+  padding: 14px;
   font-size: 16px;
   font-weight: 700;
   border: none;
-  border-radius: 8px;
+  border-radius: 10px;
   background: #c41e3a;
   color: #fff;
   cursor: pointer;
-  transition: background 0.15s;
-  letter-spacing: 0.3px;
+  transition: background 0.2s, box-shadow 0.2s;
+  letter-spacing: 0.5px;
 }
 
-.btn-watch:hover { background: #a8182f; }
-.btn-watch:active { background: #8e1428; }
-
-.hero-actions {
-  display: flex;
-  gap: 6px;
-  margin-top: 8px;
+.btn-watch:hover {
+  background: #d42240;
+  box-shadow: 0 4px 24px rgba(196, 30, 58, 0.35);
 }
 
-.hero-actions .btn {
-  flex: 1;
+.btn-watch:active {
+  background: #a8182f;
+  box-shadow: none;
 }
 
-/* --- Buttons --- */
+.btn-watch:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.8);
+  outline-offset: 2px;
+}
 
-.btn {
-  border: none;
-  border-radius: 6px;
-  padding: 6px 10px;
+/* --- Footer --- */
+
+.footer {
+  margin-top: 20px;
+  text-align: center;
+}
+
+.site-link {
   font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: opacity 0.15s;
-}
-
-.btn:hover { opacity: 0.85; }
-.btn:active { opacity: 0.7; }
-
-.btn-primary { background: #c41e3a; color: #fff; }
-.btn-secondary { background: #2a2a4a; color: #aaa; }
-.btn-sm { padding: 5px 8px; font-size: 11px; }
-
-.btn-link {
-  background: none;
-  border: none;
-  color: #666;
-  font-size: 11px;
-  cursor: pointer;
-  padding: 0;
-}
-
-.btn-link:hover { color: #888; }
-
-/* --- Detected streams (collapsible) --- */
-
-.detected {
-  border-top: 1px solid #2a2a4a;
-  padding: 8px 16px 12px;
-}
-
-.detected-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-#detected-label {
-  font-size: 11px;
-  color: #666;
-}
-
-.stream-list { padding-top: 8px; }
-
-.stream-card {
-  background: #2a2a4a;
-  border-radius: 6px;
-  padding: 10px;
-  margin-bottom: 6px;
-}
-
-.stream-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 4px;
-}
-
-.stream-type {
-  font-size: 10px;
-  font-weight: 700;
-  padding: 1px 5px;
-  border-radius: 3px;
-  background: #c41e3a;
-  color: #fff;
-}
-
-.stream-cdn {
-  font-size: 10px;
-  color: #666;
-}
-
-.stream-url {
-  font-family: 'SF Mono', Monaco, Consolas, monospace;
-  font-size: 10px;
   color: #555;
-  margin-bottom: 6px;
-  word-break: break-all;
+  text-decoration: none;
+  transition: color 0.15s;
 }
 
-.stream-actions {
-  display: flex;
-  gap: 6px;
+.site-link:hover { color: #888; }
+
+.site-link:focus-visible {
+  outline: 1px solid rgba(255, 255, 255, 0.4);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.trust {
+  margin-top: 10px;
+  font-size: 10px;
+  color: #333;
+  letter-spacing: 0.3px;
 }

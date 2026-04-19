@@ -48,6 +48,11 @@ html, body {
 
 .ctrl:hover { background: #333; }
 
+.ctrl:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.6);
+  outline-offset: 1px;
+}
+
 #volume {
   width: 80px;
   accent-color: #c41e3a;
