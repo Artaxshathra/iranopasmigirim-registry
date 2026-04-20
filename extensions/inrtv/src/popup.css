@@ -63,6 +63,14 @@ body {
   letter-spacing: 0.5px;
 }
 
+.btn-icon {
+  width: 14px;
+  height: 14px;
+  fill: #fff;
+  vertical-align: -1px;
+  margin-right: 4px;
+}
+
 .btn-watch:hover {
   background: #d42240;
   box-shadow: 0 4px 24px rgba(196, 30, 58, 0.35);

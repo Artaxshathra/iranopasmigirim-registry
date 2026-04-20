@@ -46,6 +46,25 @@ html, body {
   line-height: 1;
 }
 
+.ctrl .icon {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+  stroke: currentColor;
+  vertical-align: middle;
+  display: inline-block;
+}
+
+/* Play/Pause icon state */
+#btn-play .icon-pause { display: none; }
+#btn-play[data-state="playing"] .icon-play { display: none; }
+#btn-play[data-state="playing"] .icon-pause { display: inline-block; }
+
+/* Mute icon state */
+#btn-mute .icon-muted { display: none; }
+#btn-mute[data-state="muted"] .icon-vol { display: none; }
+#btn-mute[data-state="muted"] .icon-muted { display: inline-block; }
+
 .ctrl:hover { background: #333; }
 
 .ctrl:focus-visible {
@@ -95,7 +114,7 @@ html, body {
   transition: opacity 3s ease;
 }
 
-.branding.fade { opacity: 0; }
+.branding.fade { opacity: 0.15; }
 
 /* --- Overlays --- */
 
@@ -142,4 +161,29 @@ html, body {
   font-size: 13px;
   color: #888;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+}
+
+/* --- Click-to-play overlay --- */
+
+#overlay-play {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+  z-index: 8;
+}
+
+.play-circle {
+  width: 80px;
+  height: 80px;
+  opacity: 0.85;
+  transition: opacity 0.2s, transform 0.2s;
+}
+
+#overlay-play:hover .play-circle {
+  opacity: 1;
+  transform: scale(1.08);
 }

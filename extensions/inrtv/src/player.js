@@ -12,6 +12,7 @@ var btnFs = document.getElementById('btn-fs');
 var overlayError = document.getElementById('overlay-error');
 var errorMsg = document.getElementById('error-msg');
 var overlayLoading = document.getElementById('overlay-loading');
+var overlayPlay = document.getElementById('overlay-play');
 var statsEl = document.getElementById('stats');
 var brandingEl = document.getElementById('branding');
 
@@ -53,7 +54,7 @@ function loadHls(url) {
   hls.attachMedia(video);
 
   hls.on(Hls.Events.MANIFEST_PARSED, function () {
-    video.play().catch(function () {});
+    video.play().catch(showPlayPrompt);
     hideLoading();
     startStats();
   });
@@ -88,7 +89,7 @@ function loadNative(url) {
     hideLoading();
   });
   video.addEventListener('canplay', function () {
-    video.play().catch(function () {});
+    video.play().catch(showPlayPrompt);
     hideLoading();
   }, { once: true });
   video.addEventListener('error', function () {
@@ -138,11 +139,12 @@ function setupControls() {
   btnFs.addEventListener('click', toggleFullscreen);
 
   video.addEventListener('play', function () {
-    btnPlay.textContent = '⏸';
+    btnPlay.setAttribute('data-state', 'playing');
     btnPlay.setAttribute('aria-label', 'Pause');
+    hidePlayPrompt();
   });
   video.addEventListener('pause', function () {
-    btnPlay.textContent = '▶';
+    btnPlay.setAttribute('data-state', 'paused');
     btnPlay.setAttribute('aria-label', 'Play');
   });
 
@@ -188,7 +190,7 @@ function toggleMute() {
 }
 
 function updateMuteIcon() {
-  btnMute.textContent = video.muted ? '🔇' : '🔊';
+  btnMute.setAttribute('data-state', video.muted ? 'muted' : 'unmuted');
   btnMute.setAttribute('aria-label', video.muted ? 'Unmute' : 'Mute');
 }
 
@@ -211,6 +213,17 @@ function showError(msg) {
 
 function hideError() { overlayError.hidden = true; }
 function hideLoading() { overlayLoading.hidden = true; }
+
+function showPlayPrompt() {
+  hideLoading();
+  overlayPlay.hidden = false;
+}
+
+function hidePlayPrompt() { overlayPlay.hidden = true; }
+
+overlayPlay.addEventListener('click', function () {
+  video.play().catch(function () {});
+});
 
 // --- Cleanup ---
 

@@ -87,8 +87,35 @@ describe('player.js logic', () => {
       'pause event must set aria-label to Play');
   });
 
+  it('toggles play button via data-state attribute', () => {
+    assert.ok(playerJs.includes("setAttribute('data-state', 'playing')"),
+      'play event must set data-state to playing');
+    assert.ok(playerJs.includes("setAttribute('data-state', 'paused')"),
+      'pause event must set data-state to paused');
+  });
+
   it('updates aria-label on mute/unmute toggle', () => {
     assert.ok(playerJs.includes("setAttribute('aria-label', video.muted ? 'Unmute' : 'Mute')"),
       'updateMuteIcon must update aria-label');
+  });
+
+  it('toggles mute button via data-state attribute', () => {
+    assert.ok(playerJs.includes("setAttribute('data-state', video.muted ? 'muted' : 'unmuted')"),
+      'updateMuteIcon must set data-state');
+  });
+
+  it('shows play prompt on autoplay failure', () => {
+    assert.ok(playerJs.includes('.catch(showPlayPrompt)'),
+      'play() must catch with showPlayPrompt');
+  });
+
+  it('hides play prompt when video plays', () => {
+    assert.ok(playerJs.includes('hidePlayPrompt'),
+      'play event must hide play prompt overlay');
+  });
+
+  it('play overlay responds to click', () => {
+    assert.ok(playerJs.includes("overlayPlay.addEventListener('click'"),
+      'play overlay must have click handler');
   });
 });

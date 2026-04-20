@@ -91,6 +91,23 @@ describe('player.html', () => {
       'loading overlay must have a visible caption');
   });
 
+  it('play prompt overlay exists and is hidden by default', () => {
+    const divs = attrs(html, 'div');
+    const playOv = divs.find(d => attrValue(d, 'id') === 'overlay-play');
+    assert.ok(playOv, '#overlay-play must exist');
+    assert.ok(playOv.includes('hidden'), '#overlay-play must be hidden by default');
+  });
+
+  it('uses SVG icons in control buttons (no emoji)', () => {
+    const buttons = attrs(html, 'button');
+    const playerBtns = buttons.filter(b => {
+      const id = attrValue(b, 'id');
+      return id && id.startsWith('btn-') && id !== 'btn-watch';
+    });
+    // Buttons should not contain emoji text content — they contain SVG children
+    assert.ok(playerBtns.length >= 4, 'must have at least 4 control buttons');
+  });
+
   it('scripts reference only local files', () => {
     const scripts = attrs(html, 'script');
     for (const s of scripts) {

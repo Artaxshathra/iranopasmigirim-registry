@@ -12,18 +12,35 @@
     <div id="branding" class="branding" aria-hidden="true">INRTV</div>
 
     <div id="controls">
-      <button id="btn-play" class="ctrl" title="Play / Pause (k)" aria-label="Play">▶</button>
-      <button id="btn-mute" class="ctrl" title="Mute (m)" aria-label="Mute">🔊</button>
+      <button id="btn-play" class="ctrl" title="Play / Pause (k)" aria-label="Play">
+        <svg class="icon icon-play" viewBox="0 0 18 18"><polygon points="4,2 16,9 4,16"/></svg>
+        <svg class="icon icon-pause" viewBox="0 0 18 18"><rect x="3" y="2" width="4" height="14"/><rect x="11" y="2" width="4" height="14"/></svg>
+      </button>
+      <button id="btn-mute" class="ctrl" title="Mute (m)" aria-label="Mute">
+        <svg class="icon icon-vol" viewBox="0 0 18 18"><polygon points="2,6 6,6 10,2 10,16 6,12 2,12"/><path d="M12 5.5c1.3 1.2 1.3 5.8 0 7" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M14 3.5c2.2 2 2.2 9 0 11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        <svg class="icon icon-muted" viewBox="0 0 18 18"><polygon points="2,6 6,6 10,2 10,16 6,12 2,12"/><line x1="13" y1="6" x2="17" y2="12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="17" y1="6" x2="13" y2="12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      </button>
       <input id="volume" type="range" min="0" max="1" step="0.05" value="1" aria-label="Volume">
       <div class="spacer"></div>
       <span id="stats" class="stats"></span>
       <span id="badge-live" class="badge live">LIVE</span>
-      <button id="btn-pip" class="ctrl" title="Picture-in-Picture (p)" aria-label="Picture-in-Picture">⧉</button>
-      <button id="btn-fs" class="ctrl" title="Fullscreen (f)" aria-label="Fullscreen">⛶</button>
+      <button id="btn-pip" class="ctrl" title="Picture-in-Picture (p)" aria-label="Picture-in-Picture">
+        <svg class="icon" viewBox="0 0 18 18"><rect x="1" y="3" width="16" height="12" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="9" y="8" width="7" height="5" rx="1"/></svg>
+      </button>
+      <button id="btn-fs" class="ctrl" title="Fullscreen (f)" aria-label="Fullscreen">
+        <svg class="icon" viewBox="0 0 18 18"><polyline points="1,6 1,1 6,1" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><polyline points="12,1 17,1 17,6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><polyline points="17,12 17,17 12,17" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><polyline points="6,17 1,17 1,12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
     </div>
 
     <div id="overlay-error" hidden role="status" aria-live="polite">
       <p id="error-msg">Connection lost. Retrying...</p>
+    </div>
+
+    <div id="overlay-play" hidden>
+      <svg class="play-circle" viewBox="0 0 80 80">
+        <circle cx="40" cy="40" r="38" fill="rgba(0,0,0,0.5)" stroke="rgba(255,255,255,0.8)" stroke-width="2"/>
+        <polygon points="30,20 65,40 30,60" fill="rgba(255,255,255,0.9)"/>
+      </svg>
     </div>
 
     <div id="overlay-loading">
