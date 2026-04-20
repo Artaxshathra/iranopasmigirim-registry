@@ -1,0 +1,10 @@
+{
+  "extName": {
+    "message": "تلویزیون انقلاب ملی ایران — پخش زنده",
+    "description": "Extension name"
+  },
+  "extDescription": {
+    "message": "پخش زنده تلویزیون انقلاب ملی ایران در مرورگر شما. یک کلیک، بدون تبلیغ، بدون ردیابی.",
+    "description": "Extension description shown in the store"
+  }
+}

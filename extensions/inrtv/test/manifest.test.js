@@ -79,6 +79,21 @@ describe('manifest.json', () => {
     assert.ok(!csp.includes('unsafe-eval'), 'CSP must not allow unsafe-eval');
   });
 
+  it('CSP pins connect-src and media-src to the stream host', () => {
+    const csp = manifest.content_security_policy.extension_pages;
+    assert.ok(csp.includes('connect-src'), 'CSP must define connect-src');
+    assert.ok(csp.includes('media-src https://hls.irannrtv.live'),
+      'CSP media-src must pin the stream host');
+    assert.ok(/connect-src[^;]*https:\/\/hls\.irannrtv\.live/.test(csp),
+      'CSP connect-src must include the stream host');
+  });
+
+  it("CSP worker-src is 'self' blob: (hls.js spawns workers from blob URLs)", () => {
+    const csp = manifest.content_security_policy.extension_pages;
+    assert.ok(/worker-src\s+'self'\s+blob:/.test(csp),
+      "CSP must set worker-src 'self' blob: — hls.js creates workers via URL.createObjectURL");
+  });
+
   it('all declared icon files exist', () => {
     const iconPaths = new Set();
     if (manifest.icons) Object.values(manifest.icons).forEach(p => iconPaths.add(p));
@@ -96,5 +111,16 @@ describe('manifest.json', () => {
 
   it('version follows semver format', () => {
     assert.match(manifest.version, /^\d+\.\d+\.\d+$/);
+  });
+
+  it('en and fa locales exist with identical key sets', () => {
+    const en = JSON.parse(fs.readFileSync(path.join(SRC, '_locales', 'en', 'messages.json'), 'utf8'));
+    const fa = JSON.parse(fs.readFileSync(path.join(SRC, '_locales', 'fa', 'messages.json'), 'utf8'));
+    assert.deepEqual(Object.keys(en).sort(), Object.keys(fa).sort(),
+      'en and fa locales must define the same message keys');
+    for (const key of Object.keys(en)) {
+      assert.ok(fa[key].message && fa[key].message.length > 0,
+        `fa locale must provide a non-empty message for "${key}"`);
+    }
   });
 });

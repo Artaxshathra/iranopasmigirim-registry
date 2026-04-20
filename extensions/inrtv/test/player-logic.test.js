@@ -141,6 +141,36 @@ describe('player.js logic', () => {
       'fatalRetries must reset on FRAG_LOADED');
   });
 
+  it('keyboard handler ignores events with modifier keys', () => {
+    assert.match(playerJs, /e\.ctrlKey\s*\|\|\s*e\.metaKey\s*\|\|\s*e\.altKey/,
+      'keyboard handler must bail on Ctrl/Meta/Alt to avoid hijacking browser shortcuts');
+  });
+
+  it("keyboard handler includes '?' for help overlay", () => {
+    assert.ok(playerJs.includes("'?'"), "keyboard handler must handle '?' key");
+    assert.ok(playerJs.includes('toggleHelp') || playerJs.includes('showHelp'),
+      'keyboard handler must toggle/show help overlay');
+  });
+
+  it('hls config tunes live-edge playback', () => {
+    const m = playerJs.match(/new\s+Hls\(\{([\s\S]*?)\}\)/);
+    assert.ok(m, 'hls config block must exist');
+    const cfg = m[1];
+    const back = cfg.match(/backBufferLength\s*:\s*(\d+)/);
+    assert.ok(back, 'backBufferLength must be set');
+    assert.ok(Number(back[1]) <= 30, 'backBufferLength must be <= 30s');
+    assert.match(cfg, /maxLiveSyncPlaybackRate\s*:/, 'maxLiveSyncPlaybackRate must be configured');
+    assert.match(cfg, /maxBufferLength\s*:/, 'maxBufferLength must be configured');
+  });
+
+  it('controls auto-hide via idle class on inactivity', () => {
+    assert.ok(playerJs.includes("'mousemove'"), 'must listen for mousemove to track activity');
+    assert.ok(playerJs.includes("classList.add('idle')"),
+      'must add idle class after inactivity timer');
+    assert.ok(playerJs.includes("classList.remove('idle')"),
+      'must remove idle class on activity');
+  });
+
   it('consolidates native canplay into a single { once: true } listener', () => {
     const nativeBlock = playerJs.slice(
       playerJs.indexOf('function loadNative'),

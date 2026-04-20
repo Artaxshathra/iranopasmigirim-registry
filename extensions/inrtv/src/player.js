@@ -13,6 +13,8 @@ var overlayError = document.getElementById('overlay-error');
 var errorMsg = document.getElementById('error-msg');
 var overlayLoading = document.getElementById('overlay-loading');
 var overlayPlay = document.getElementById('overlay-play');
+var overlayHelp = document.getElementById('overlay-help');
+var playerContainer = document.getElementById('player-container');
 var statsEl = document.getElementById('stats');
 var brandingEl = document.getElementById('branding');
 
@@ -49,7 +51,10 @@ function loadHls(url) {
     levelLoadingMaxRetry: 30,
     levelLoadingMaxRetryTimeout: 15000,
     startFragPrefetch: true,
-    backBufferLength: 30,
+    backBufferLength: 8,
+    maxBufferLength: 10,
+    liveSyncDurationCount: 3,
+    maxLiveSyncPlaybackRate: 1.5,
   });
 
   hls.loadSource(url);
@@ -168,11 +173,18 @@ function setupControls() {
 
 function setupKeyboard() {
   document.addEventListener('keydown', function (e) {
+    // Don't hijack browser shortcuts (Ctrl+F find, Cmd+P print, etc.)
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+    // Help overlay dismisses on any key
+    if (!overlayHelp.hidden && e.key !== '?') { hideHelp(); return; }
+
     switch (e.key) {
       case ' ': case 'k': e.preventDefault(); togglePlay(); break;
       case 'm': toggleMute(); break;
       case 'f': toggleFullscreen(); break;
       case 'p': togglePip(); break;
+      case '?': e.preventDefault(); toggleHelp(); break;
       case 'ArrowUp':
         e.preventDefault();
         video.volume = Math.min(1, video.volume + 0.1);
@@ -188,6 +200,10 @@ function setupKeyboard() {
     }
   });
 }
+
+function showHelp() { overlayHelp.hidden = false; }
+function hideHelp() { overlayHelp.hidden = true; }
+function toggleHelp() { overlayHelp.hidden ? showHelp() : hideHelp(); }
 
 function togglePlay() {
   if (video.paused) video.play().catch(function () {});
@@ -241,6 +257,29 @@ overlayPlay.addEventListener('keydown', function (e) {
     video.play().catch(function () {});
   }
 });
+
+overlayHelp.addEventListener('click', hideHelp);
+
+// --- Idle auto-hide (controls + branding fade after 3s of inactivity) ---
+
+var idleTimer = null;
+function wake() {
+  document.body.classList.remove('idle');
+  if (idleTimer) clearTimeout(idleTimer);
+  idleTimer = setTimeout(function () {
+    if (!video.paused) document.body.classList.add('idle');
+  }, 3000);
+}
+playerContainer.addEventListener('mousemove', wake);
+playerContainer.addEventListener('mouseleave', function () {
+  if (idleTimer) clearTimeout(idleTimer);
+  if (!video.paused) document.body.classList.add('idle');
+});
+video.addEventListener('pause', function () {
+  document.body.classList.remove('idle');
+  if (idleTimer) clearTimeout(idleTimer);
+});
+wake();
 
 // --- Cleanup ---
 
