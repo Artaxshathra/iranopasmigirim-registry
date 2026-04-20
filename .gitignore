@@ -1,6 +1,3 @@
 node_modules/
 dist/
 *.zip
-
-# Bundled third-party libs (downloaded at build time)
-**/lib/
