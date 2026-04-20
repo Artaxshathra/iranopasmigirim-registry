@@ -23,6 +23,6 @@
   },
 
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; connect-src 'self' https://hls.irannrtv.live; media-src https://hls.irannrtv.live; worker-src 'self' blob:"
+    "extension_pages": "script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; connect-src 'self' https://hls.irannrtv.live; media-src https://hls.irannrtv.live; worker-src 'self'"
   }
 }

@@ -42,7 +42,9 @@ function init() {
 
 function loadHls(url) {
   hls = new Hls({
-    enableWorker: true,
+    // Worker disabled: MV3 CSP forbids "blob:" in worker-src, and hls.js spawns
+    // its worker from a blob URL. Main-thread demuxing is fine for a single 720p stream.
+    enableWorker: false,
     lowLatencyMode: true,
     fragLoadingMaxRetry: 30,
     fragLoadingMaxRetryTimeout: 15000,

@@ -88,10 +88,10 @@ describe('manifest.json', () => {
       'CSP connect-src must include the stream host');
   });
 
-  it("CSP worker-src is 'self' blob: (hls.js spawns workers from blob URLs)", () => {
+  it("CSP worker-src is 'self' with no blob: (MV3 forbids blob: in worker-src)", () => {
     const csp = manifest.content_security_policy.extension_pages;
-    assert.ok(/worker-src\s+'self'\s+blob:/.test(csp),
-      "CSP must set worker-src 'self' blob: — hls.js creates workers via URL.createObjectURL");
+    assert.ok(/worker-src\s+'self'(?![^;]*blob:)/.test(csp),
+      "CSP worker-src must be 'self' only — MV3 rejects blob: here; hls.js runs on main thread");
   });
 
   it('all declared icon files exist', () => {
