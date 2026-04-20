@@ -18,6 +18,8 @@ var brandingEl = document.getElementById('branding');
 
 var hls = null;
 var statsInterval = null;
+var fatalRetries = 0;
+var MAX_FATAL_RETRIES = 5;
 
 // --- Init ---
 
@@ -63,6 +65,11 @@ function loadHls(url) {
     if (!data.fatal) return;
     switch (data.type) {
       case Hls.ErrorTypes.NETWORK_ERROR:
+        if (fatalRetries >= MAX_FATAL_RETRIES) {
+          showError('Network unavailable. Try refreshing (F5).');
+          return;
+        }
+        fatalRetries++;
         showError('Network error. Retrying...');
         setTimeout(function () { hls.startLoad(); }, 2000);
         break;
@@ -79,6 +86,7 @@ function loadHls(url) {
   hls.on(Hls.Events.FRAG_LOADED, function () {
     hideError();
     hideLoading();
+    fatalRetries = 0;
   });
 }
 
@@ -87,10 +95,7 @@ function loadNative(url) {
   video.addEventListener('canplay', function () {
     hideError();
     hideLoading();
-  });
-  video.addEventListener('canplay', function () {
     video.play().catch(showPlayPrompt);
-    hideLoading();
   }, { once: true });
   video.addEventListener('error', function () {
     showError('Playback error. Check the stream URL.');
@@ -132,6 +137,11 @@ function setupControls() {
   volumeSlider.addEventListener('input', function () {
     video.volume = parseFloat(volumeSlider.value);
     video.muted = false;
+    updateMuteIcon();
+  });
+
+  video.addEventListener('volumechange', function () {
+    volumeSlider.value = video.muted ? 0 : video.volume;
     updateMuteIcon();
   });
 
@@ -223,6 +233,13 @@ function hidePlayPrompt() { overlayPlay.hidden = true; }
 
 overlayPlay.addEventListener('click', function () {
   video.play().catch(function () {});
+});
+
+overlayPlay.addEventListener('keydown', function (e) {
+  if (e.key === 'Enter' || e.key === ' ') {
+    e.preventDefault();
+    video.play().catch(function () {});
+  }
 });
 
 // --- Cleanup ---

@@ -87,6 +87,13 @@ Test suites:
 
 This extension collects **no data**. See the full [privacy policy](docs/privacy-policy.html).
 
+## Disclaimer
+
+This is an **independent, unofficial** browser extension that plays the publicly
+available INRTV live stream. It is not affiliated with, endorsed by, or sponsored
+by Iran National Revolution TV or any related organization. All trademarks are
+the property of their respective owners.
+
 ## License
 
 Extension code: MIT  

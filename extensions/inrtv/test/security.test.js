@@ -118,4 +118,48 @@ describe('security: stream URL ↔ host_permissions consistency', () => {
     assert.ok(urlMatch);
     assert.ok(urlMatch[1].startsWith('https://'), 'STREAM_URL must use https');
   });
+
+  it('privacy policy mentions the same stream hostname', () => {
+    const playerJs = jsFiles.find(f => f.name === 'player.js');
+    const urlMatch = playerJs.content.match(/STREAM_URL\s*=\s*['"]([^'"]+)['"]/);
+    const streamHost = new URL(urlMatch[1]).hostname;
+    const policyPath = path.join(SRC, '..', '..', '..', 'docs', 'privacy-policy.html');
+    const policy = fs.readFileSync(policyPath, 'utf8');
+    assert.ok(policy.includes(streamHost),
+      `privacy policy must mention stream hostname "${streamHost}"`);
+  });
+});
+
+describe('license attribution consistency', () => {
+  // hls.js is Apache-2.0 — every file that names its license must agree
+  // and must NOT call it MIT (a recurring drift bug).
+  const REPO_ROOT = path.join(SRC, '..', '..', '..');
+  const filesToCheck = [
+    'docs/privacy-policy.html',
+    'README.md',
+    'CHANGELOG.md',
+    'extensions/inrtv/SOURCE_NOTE.md',
+    'extensions/inrtv/bootstrap.sh',
+  ];
+
+  for (const rel of filesToCheck) {
+    it(`${rel} calls hls.js Apache-2.0 (never MIT)`, () => {
+      const full = path.join(REPO_ROOT, rel);
+      if (!fs.existsSync(full)) return; // file is optional in some configurations
+      const content = fs.readFileSync(full, 'utf8');
+      if (!/hls\.js/i.test(content)) return; // no mention, nothing to check
+
+      // Match only when MIT is *attributed to* hls.js (e.g. "hls.js (MIT)",
+      // "hls.js, MIT license", "hls.js — MIT"). Avoids false positives when
+      // MIT describes a separate item in the same paragraph.
+      const mitTiedToHls = /hls\.js[^\n]{0,30}[\(\[,;:—–-][^\n]{0,30}\bMIT\b/i.test(content);
+      assert.ok(!mitTiedToHls,
+        `${rel} must not describe hls.js as MIT — it is Apache-2.0`);
+    });
+  }
+
+  it('hls.min.js banner declares Apache-2.0', () => {
+    const banner = fs.readFileSync(path.join(SRC, 'lib', 'hls.min.js'), 'utf8').slice(0, 200);
+    assert.match(banner, /Apache-2\.0/i, 'hls.min.js must carry an Apache-2.0 banner');
+  });
 });

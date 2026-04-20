@@ -69,6 +69,12 @@ describe('build output', () => {
         'must not contain .DS_Store');
     });
 
+    it('includes LICENSE file (Apache-2.0 §4(a))', () => {
+      const files = zipList(zipPath);
+      assert.ok(files.some(f => f === 'LICENSE' || f.endsWith('/LICENSE')),
+        'Chrome zip must include LICENSE');
+    });
+
     it('hls.min.js starts with license banner', () => {
       const hlsContent = zipRead(zipPath, 'lib/hls.min.js');
       assert.match(hlsContent, /^\/\*! hls\.js v[\d.]+ \| Apache-2\.0/,

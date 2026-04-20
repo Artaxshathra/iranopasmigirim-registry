@@ -9,7 +9,7 @@
 ## Setup
 
 ```bash
-git clone git@github.com:ardeshiri/inrtv-extension.git
+git clone <repository-url>
 cd inrtv-extension
 
 # Download hls.js (one-time, SHA-256 verified)

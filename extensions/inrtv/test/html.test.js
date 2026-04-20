@@ -98,6 +98,34 @@ describe('player.html', () => {
     assert.ok(playOv.includes('hidden'), '#overlay-play must be hidden by default');
   });
 
+  it('play prompt overlay is keyboard-accessible', () => {
+    const divs = attrs(html, 'div');
+    const playOv = divs.find(d => attrValue(d, 'id') === 'overlay-play');
+    assert.ok(playOv, '#overlay-play must exist');
+    assert.equal(attrValue(playOv, 'role'), 'button', '#overlay-play must have role="button"');
+    assert.equal(attrValue(playOv, 'tabindex'), '0', '#overlay-play must have tabindex="0"');
+    assert.ok(attrValue(playOv, 'aria-label'), '#overlay-play must have aria-label');
+  });
+
+  it('decorative SVGs inside buttons have aria-hidden', () => {
+    const svgRe = /<svg[^>]*>/gi;
+    let m;
+    while ((m = svgRe.exec(html)) !== null) {
+      const tag = m[0];
+      // Skip standalone SVGs (like play-circle in overlay)
+      if (tag.includes('play-circle')) continue;
+      assert.ok(tag.includes('aria-hidden="true"'),
+        `SVG must have aria-hidden="true": ${tag.slice(0, 80)}`);
+    }
+  });
+
+  it('loading overlay has role="status"', () => {
+    const divs = attrs(html, 'div');
+    const loadingOv = divs.find(d => attrValue(d, 'id') === 'overlay-loading');
+    assert.ok(loadingOv, '#overlay-loading must exist');
+    assert.equal(attrValue(loadingOv, 'role'), 'status');
+  });
+
   it('uses SVG icons in control buttons (no emoji)', () => {
     const buttons = attrs(html, 'button');
     const playerBtns = buttons.filter(b => {
@@ -167,6 +195,18 @@ describe('popup.html', () => {
 
   it('link-site element exists', () => {
     assert.match(html, /id=["']link-site["']/);
+  });
+
+  it('link-site has a real href (not placeholder)', () => {
+    const links = attrs(html, 'a');
+    const siteLink = links.find(a => attrValue(a, 'id') === 'link-site');
+    assert.ok(siteLink, '#link-site must exist');
+    const href = attrValue(siteLink, 'href');
+    assert.ok(href && href.startsWith('https://'), '#link-site href must be a real HTTPS URL');
+  });
+
+  it('has a <title> element', () => {
+    assert.match(html, /<title>[^<]+<\/title>/, 'popup.html must have a <title>');
   });
 
   it('logo image has alt attribute', () => {

@@ -12,14 +12,19 @@ mkdir -p "$DIST"
 
 # --- Chrome ---
 echo "Building Chrome extension..."
-cd "$SRC"
-zip -r "../$DIST/inrtv-chrome.zip" \
-  manifest.json \
+CHROME="$DIST/_chrome"
+mkdir -p "$CHROME"
+cp -r "$SRC"/* "$CHROME/"
+cp LICENSE "$CHROME/"
+cd "$CHROME"
+zip -r "../inrtv-chrome.zip" \
+  manifest.json LICENSE \
   popup.html popup.js popup.css \
   player.html player.js player.css \
   lib/ icons/ _locales/ \
   -x "*.DS_Store"
-cd ..
+cd ../..
+rm -rf "$CHROME"
 
 # --- Firefox (add gecko id) ---
 echo "Building Firefox extension..."

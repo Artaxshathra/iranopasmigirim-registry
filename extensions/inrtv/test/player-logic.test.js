@@ -118,4 +118,36 @@ describe('player.js logic', () => {
     assert.ok(playerJs.includes("overlayPlay.addEventListener('click'"),
       'play overlay must have click handler');
   });
+
+  it('play overlay responds to keyboard (Enter/Space)', () => {
+    assert.ok(playerJs.includes("overlayPlay.addEventListener('keydown'"),
+      'play overlay must have keydown handler');
+  });
+
+  it('listens for volumechange to sync slider', () => {
+    assert.ok(playerJs.includes("addEventListener('volumechange'"),
+      'must listen for volumechange events');
+  });
+
+  it('caps fatal error retries', () => {
+    assert.ok(playerJs.includes('MAX_FATAL_RETRIES'),
+      'must define a fatal retry cap');
+    assert.ok(playerJs.includes('fatalRetries >= MAX_FATAL_RETRIES'),
+      'must check retry cap before retrying');
+  });
+
+  it('resets fatal retry counter on successful load', () => {
+    assert.ok(playerJs.includes('fatalRetries = 0'),
+      'fatalRetries must reset on FRAG_LOADED');
+  });
+
+  it('consolidates native canplay into a single { once: true } listener', () => {
+    const nativeBlock = playerJs.slice(
+      playerJs.indexOf('function loadNative'),
+      playerJs.indexOf('function startStats')
+    );
+    const canplayMatches = nativeBlock.match(/addEventListener\('canplay'/g);
+    assert.equal(canplayMatches && canplayMatches.length, 1,
+      'loadNative must have exactly one canplay listener');
+  });
 });
