@@ -154,6 +154,7 @@ function setupControls() {
 
   btnPip.addEventListener('click', togglePip);
   btnFs.addEventListener('click', toggleFullscreen);
+  playerContainer.addEventListener('dblclick', toggleFullscreen);
 
   video.addEventListener('play', function () {
     btnPlay.setAttribute('data-state', 'playing');

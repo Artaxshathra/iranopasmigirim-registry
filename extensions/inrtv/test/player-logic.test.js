@@ -171,6 +171,11 @@ describe('player.js logic', () => {
       'must remove idle class on activity');
   });
 
+  it('double-click on the player toggles fullscreen', () => {
+    assert.match(playerJs, /playerContainer\.addEventListener\(\s*['"]dblclick['"]\s*,\s*toggleFullscreen/,
+      'playerContainer must bind dblclick to toggleFullscreen');
+  });
+
   it('fullscreen targets the player container, not the whole document', () => {
     assert.ok(playerJs.includes('playerContainer.requestFullscreen'),
       'fullscreen must target playerContainer');
