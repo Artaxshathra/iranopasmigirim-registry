@@ -171,6 +171,13 @@ describe('player.js logic', () => {
       'must remove idle class on activity');
   });
 
+  it('fullscreen targets the player container, not the whole document', () => {
+    assert.ok(playerJs.includes('playerContainer.requestFullscreen'),
+      'fullscreen must target playerContainer');
+    assert.ok(!playerJs.includes('documentElement.requestFullscreen'),
+      'must not fullscreen the entire document');
+  });
+
   it('consolidates native canplay into a single { once: true } listener', () => {
     const nativeBlock = playerJs.slice(
       playerJs.indexOf('function loadNative'),

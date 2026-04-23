@@ -1,27 +1,27 @@
 'use strict';
 
 // Stream URL — single source of truth (also in manifest.json host_permissions)
-var STREAM_URL = 'https://hls.irannrtv.live/hls/stream.m3u8';
+const STREAM_URL = 'https://hls.irannrtv.live/hls/stream.m3u8';
 
-var video = document.getElementById('video');
-var btnPlay = document.getElementById('btn-play');
-var btnMute = document.getElementById('btn-mute');
-var volumeSlider = document.getElementById('volume');
-var btnPip = document.getElementById('btn-pip');
-var btnFs = document.getElementById('btn-fs');
-var overlayError = document.getElementById('overlay-error');
-var errorMsg = document.getElementById('error-msg');
-var overlayLoading = document.getElementById('overlay-loading');
-var overlayPlay = document.getElementById('overlay-play');
-var overlayHelp = document.getElementById('overlay-help');
-var playerContainer = document.getElementById('player-container');
-var statsEl = document.getElementById('stats');
-var brandingEl = document.getElementById('branding');
+const video = document.getElementById('video');
+const btnPlay = document.getElementById('btn-play');
+const btnMute = document.getElementById('btn-mute');
+const volumeSlider = document.getElementById('volume');
+const btnPip = document.getElementById('btn-pip');
+const btnFs = document.getElementById('btn-fs');
+const overlayError = document.getElementById('overlay-error');
+const errorMsg = document.getElementById('error-msg');
+const overlayLoading = document.getElementById('overlay-loading');
+const overlayPlay = document.getElementById('overlay-play');
+const overlayHelp = document.getElementById('overlay-help');
+const playerContainer = document.getElementById('player-container');
+const statsEl = document.getElementById('stats');
+const brandingEl = document.getElementById('branding');
 
-var hls = null;
-var statsInterval = null;
-var fatalRetries = 0;
-var MAX_FATAL_RETRIES = 5;
+let hls = null;
+let statsInterval = null;
+let fatalRetries = 0;
+const MAX_FATAL_RETRIES = 5;
 
 // --- Init ---
 
@@ -118,20 +118,20 @@ function startStats() {
 
 function updateStats() {
   if (!hls) return;
-  var level = hls.levels && hls.levels[hls.currentLevel];
-  var parts = [];
+  const level = hls.levels && hls.levels[hls.currentLevel];
+  const parts = [];
   if (level) {
     if (level.width && level.height) parts.push(level.width + 'x' + level.height);
     if (level.bitrate) parts.push(Math.round(level.bitrate / 1000) + ' kbps');
   }
-  var buf = getBufferHealth();
+  const buf = getBufferHealth();
   if (buf !== null) parts.push(buf.toFixed(1) + 's buf');
   statsEl.textContent = parts.join(' · ');
 }
 
 function getBufferHealth() {
   if (!video.buffered || video.buffered.length === 0) return null;
-  var end = video.buffered.end(video.buffered.length - 1);
+  const end = video.buffered.end(video.buffered.length - 1);
   return end - video.currentTime;
 }
 
@@ -207,8 +207,10 @@ function showHelp() { overlayHelp.hidden = false; }
 function hideHelp() { overlayHelp.hidden = true; }
 function toggleHelp() { overlayHelp.hidden ? showHelp() : hideHelp(); }
 
+function safePlay() { video.play().catch(function () {}); }
+
 function togglePlay() {
-  if (video.paused) video.play().catch(function () {});
+  if (video.paused) safePlay();
   else video.pause();
 }
 
@@ -229,7 +231,7 @@ function togglePip() {
 
 function toggleFullscreen() {
   if (document.fullscreenElement) document.exitFullscreen();
-  else document.documentElement.requestFullscreen();
+  else playerContainer.requestFullscreen();
 }
 
 // --- Overlays ---
@@ -249,14 +251,12 @@ function showPlayPrompt() {
 
 function hidePlayPrompt() { overlayPlay.hidden = true; }
 
-overlayPlay.addEventListener('click', function () {
-  video.play().catch(function () {});
-});
+overlayPlay.addEventListener('click', safePlay);
 
 overlayPlay.addEventListener('keydown', function (e) {
   if (e.key === 'Enter' || e.key === ' ') {
     e.preventDefault();
-    video.play().catch(function () {});
+    safePlay();
   }
 });
 
@@ -264,7 +264,7 @@ overlayHelp.addEventListener('click', hideHelp);
 
 // --- Idle auto-hide (controls + branding fade after 3s of inactivity) ---
 
-var idleTimer = null;
+let idleTimer = null;
 function wake() {
   document.body.classList.remove('idle');
   if (idleTimer) clearTimeout(idleTimer);
