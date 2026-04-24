@@ -9,6 +9,7 @@ const btnMute = document.getElementById('btn-mute');
 const volumeSlider = document.getElementById('volume');
 const btnPip = document.getElementById('btn-pip');
 const btnFs = document.getElementById('btn-fs');
+const btnRadio = document.getElementById('btn-radio');
 const overlayError = document.getElementById('overlay-error');
 const errorMsg = document.getElementById('error-msg');
 const overlayLoading = document.getElementById('overlay-loading');
@@ -120,8 +121,9 @@ function updateStats() {
   if (!hls) return;
   const level = hls.levels && hls.levels[hls.currentLevel];
   const parts = [];
+  const radioOn = document.body.classList.contains('radio');
   if (level) {
-    if (level.width && level.height) parts.push(level.width + 'x' + level.height);
+    if (!radioOn && level.width && level.height) parts.push(level.width + 'x' + level.height);
     if (level.bitrate) parts.push(Math.round(level.bitrate / 1000) + ' kbps');
   }
   const buf = getBufferHealth();
@@ -154,7 +156,13 @@ function setupControls() {
 
   btnPip.addEventListener('click', togglePip);
   btnFs.addEventListener('click', toggleFullscreen);
-  playerContainer.addEventListener('dblclick', toggleFullscreen);
+  btnRadio.addEventListener('click', toggleRadio);
+  playerContainer.addEventListener('dblclick', function (e) {
+    // Double-clicking the radio toggle shouldn't also fullscreen.
+    if (e.target.closest('#controls')) return;
+    if (document.body.classList.contains('radio')) return;
+    toggleFullscreen();
+  });
 
   video.addEventListener('play', function () {
     btnPlay.setAttribute('data-state', 'playing');
@@ -187,6 +195,7 @@ function setupKeyboard() {
       case 'm': toggleMute(); break;
       case 'f': toggleFullscreen(); break;
       case 'p': togglePip(); break;
+      case 'r': toggleRadio(); break;
       case '?': e.preventDefault(); toggleHelp(); break;
       case 'ArrowUp':
         e.preventDefault();
@@ -233,6 +242,16 @@ function togglePip() {
 function toggleFullscreen() {
   if (document.fullscreenElement) document.exitFullscreen();
   else playerContainer.requestFullscreen();
+}
+
+function toggleRadio() {
+  const on = document.body.classList.toggle('radio');
+  btnRadio.setAttribute('data-state', on ? 'on' : 'off');
+  btnRadio.setAttribute('aria-pressed', on ? 'true' : 'false');
+  btnRadio.setAttribute('aria-label', on ? 'Video mode' : 'Radio mode');
+  video.setAttribute('aria-label', on ? 'INRTV live audio' : 'INRTV live stream');
+  // Exit fullscreen if entering radio mode — fullscreen of a hidden video is nonsense.
+  if (on && document.fullscreenElement) document.exitFullscreen();
 }
 
 // --- Overlays ---

@@ -56,7 +56,7 @@ describe('player.js logic', () => {
   });
 
   it('keyboard handler covers all expected keys', () => {
-    const expectedKeys = [' ', 'k', 'm', 'f', 'p', 'ArrowUp', 'ArrowDown'];
+    const expectedKeys = [' ', 'k', 'm', 'f', 'p', 'r', 'ArrowUp', 'ArrowDown'];
     for (const key of expectedKeys) {
       assert.ok(playerJs.includes(`'${key}'`),
         `keyboard handler must handle '${key}'`);
@@ -172,9 +172,44 @@ describe('player.js logic', () => {
   });
 
   it('double-click on the player toggles fullscreen', () => {
-    assert.match(playerJs, /playerContainer\.addEventListener\(\s*['"]dblclick['"]\s*,\s*toggleFullscreen/,
-      'playerContainer must bind dblclick to toggleFullscreen');
+    assert.match(playerJs, /playerContainer\.addEventListener\(\s*['"]dblclick['"]/,
+      'playerContainer must bind a dblclick handler');
+    const dblBlock = playerJs.slice(playerJs.indexOf("'dblclick'"));
+    assert.ok(dblBlock.includes('toggleFullscreen'),
+      'dblclick handler must call toggleFullscreen');
   });
+
+  it('radio mode: toggleRadio toggles the body.radio class', () => {
+    assert.ok(playerJs.includes('toggleRadio'), 'toggleRadio must be defined');
+    assert.match(playerJs, /classList\.toggle\(\s*['"]radio['"]\s*\)/,
+      'toggleRadio must toggle body class "radio"');
+  });
+
+  it('radio mode: button is registered and bound to toggleRadio', () => {
+    assert.match(playerJs, /btnRadio\.addEventListener\(\s*['"]click['"]\s*,\s*toggleRadio/,
+      'btn-radio must bind click to toggleRadio');
+  });
+
+  it('radio mode: keyboard shortcut "r" toggles radio', () => {
+    const kbBlock = playerJs.slice(
+      playerJs.indexOf('setupKeyboard'),
+      playerJs.indexOf('function showHelp')
+    );
+    assert.match(kbBlock, /case\s+['"]r['"]\s*:\s*toggleRadio/,
+      "keyboard 'r' case must call toggleRadio");
+  });
+
+  it('radio mode: updates aria-pressed on the radio button', () => {
+    assert.ok(playerJs.includes("setAttribute('aria-pressed'"),
+      'toggleRadio must update aria-pressed for assistive tech');
+  });
+
+  it('radio mode: exits fullscreen when enabled', () => {
+    const fn = playerJs.slice(playerJs.indexOf('function toggleRadio'));
+    assert.ok(fn.includes('document.exitFullscreen'),
+      'entering radio mode must exit fullscreen if active');
+  });
+
 
   it('fullscreen targets the player container, not the whole document', () => {
     assert.ok(playerJs.includes('playerContainer.requestFullscreen'),
