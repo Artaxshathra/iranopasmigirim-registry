@@ -1,17 +1,35 @@
 'use strict';
 
 const PLAYER_PATH = 'player.html';
+const PLAYER_WIDTH = 960;
+const PLAYER_HEIGHT = 560;
 
 function playerUrl(radio) {
   return PLAYER_PATH + (radio ? '?radio=1' : '');
 }
 
+function isFirefox() {
+  return typeof navigator !== 'undefined' && /\bFirefox\//.test(navigator.userAgent);
+}
+
+// Chrome: a sized popup window matches the Watch-Live feel. Firefox: popup-type
+// windows ignore requested dimensions and can't reliably minimize, so open the
+// player as a regular tab instead — users get full browser chrome and proper
+// window controls.
 function createPlayer(radio) {
+  const url = playerUrl(radio);
+  if (isFirefox()) {
+    chrome.tabs.create({ url: url }, function () {
+      void chrome.runtime.lastError;
+      window.close();
+    });
+    return;
+  }
   chrome.windows.create({
-    url: playerUrl(radio),
+    url: url,
     type: 'popup',
-    width: 960,
-    height: 560
+    width: PLAYER_WIDTH,
+    height: PLAYER_HEIGHT
   }, function () {
     void chrome.runtime.lastError;
     window.close();

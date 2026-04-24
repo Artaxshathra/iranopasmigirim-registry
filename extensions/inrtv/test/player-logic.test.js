@@ -8,6 +8,7 @@ const path = require('node:path');
 const SRC = path.join(__dirname, '..', 'src');
 const playerJs = fs.readFileSync(path.join(SRC, 'player.js'), 'utf8');
 const playerHtml = fs.readFileSync(path.join(SRC, 'player.html'), 'utf8');
+const playerCss = fs.readFileSync(path.join(SRC, 'player.css'), 'utf8');
 
 describe('player.js logic', () => {
   it('starts with use strict', () => {
@@ -48,6 +49,95 @@ describe('player.js logic', () => {
   it('pagehide handler destroys hls instance', () => {
     assert.ok(playerJs.includes('hls.destroy()'),
       'pagehide must destroy hls');
+  });
+
+  it('teardown: a single destroy() function owns all cleanup', () => {
+    // Avoids duplicated cleanup logic and guarantees nothing is forgotten when
+    // a new timer/handle is added.
+    assert.match(playerJs, /function destroy\s*\(\s*\)\s*\{/,
+      'destroy() must be defined as the single teardown path');
+    assert.match(playerJs, /addEventListener\(\s*['"]pagehide['"]\s*,\s*destroy\s*\)/,
+      'pagehide must call destroy directly');
+  });
+
+  it('teardown: destroy() cancels the pending fatal-network retry timer', () => {
+    // Bug fix: if hls fired a NETWORK_ERROR and we scheduled startLoad, the
+    // window could close before the timer fired — and the callback would then
+    // throw on a destroyed/null hls instance.
+    assert.match(playerJs, /retryTimer\s*=\s*setTimeout/,
+      'fatal NETWORK_ERROR retry must be tracked in retryTimer');
+    const destroyFn = playerJs.slice(
+      playerJs.indexOf('function destroy'),
+      playerJs.indexOf('function destroy') + 400
+    );
+    assert.match(destroyFn, /clearTimeout\(\s*retryTimer\s*\)/,
+      'destroy() must clearTimeout(retryTimer)');
+    assert.match(destroyFn, /retryTimer\s*=\s*null/,
+      'destroy() must null retryTimer to prevent double-clear');
+  });
+
+  it('teardown: retry callback guards against torn-down hls', () => {
+    // Belt-and-braces — even if destroy() runs between schedule and fire (or
+    // the timer was already in flight when clearTimeout raced), the callback
+    // must not call into a null hls.
+    const errorBlock = playerJs.slice(
+      playerJs.indexOf('NETWORK_ERROR'),
+      playerJs.indexOf('MEDIA_ERROR')
+    );
+    assert.match(errorBlock, /retryTimer\s*=\s*null/,
+      'retry callback must clear its own retryTimer reference before work');
+    assert.match(errorBlock, /if\s*\(\s*!hls\s*\)\s*return/,
+      'retry callback must bail when hls has been destroyed');
+  });
+
+  it('teardown: destroy() cancels the idle timer', () => {
+    const destroyFn = playerJs.slice(
+      playerJs.indexOf('function destroy'),
+      playerJs.indexOf('function destroy') + 400
+    );
+    assert.match(destroyFn, /clearTimeout\(\s*idleTimer\s*\)/,
+      'destroy() must clearTimeout(idleTimer)');
+  });
+
+  it('overlays: showError hides loading and play prompt (mutually exclusive)', () => {
+    // Bug fix: previously showError only unhid the error overlay, so the
+    // spinner stayed visible behind a fatal error.
+    const fn = playerJs.slice(
+      playerJs.indexOf('function showError'),
+      playerJs.indexOf('function hideError')
+    );
+    assert.match(fn, /hideLoading\s*\(\s*\)/,
+      'showError must call hideLoading');
+    assert.match(fn, /hidePlayPrompt\s*\(\s*\)/,
+      'showError must call hidePlayPrompt');
+  });
+
+  it('overlays: showPlayPrompt hides loading and error', () => {
+    const fn = playerJs.slice(
+      playerJs.indexOf('function showPlayPrompt'),
+      playerJs.indexOf('function hidePlayPrompt')
+    );
+    assert.match(fn, /hideLoading\s*\(\s*\)/,
+      'showPlayPrompt must call hideLoading');
+    assert.match(fn, /hideError\s*\(\s*\)/,
+      'showPlayPrompt must call hideError');
+  });
+
+  it('tunables: behavior constants are named, not magic', () => {
+    // Keeps tuning surface explicit and one-line auditable.
+    assert.match(playerJs, /const\s+RETRY_DELAY_MS\s*=/,
+      'RETRY_DELAY_MS must be a named constant');
+    assert.match(playerJs, /const\s+IDLE_TIMEOUT_MS\s*=/,
+      'IDLE_TIMEOUT_MS must be a named constant');
+    assert.match(playerJs, /const\s+BRANDING_FADE_DELAY_MS\s*=/,
+      'BRANDING_FADE_DELAY_MS must be a named constant');
+    // And those constants must actually be used (not shadowed by literals).
+    assert.match(playerJs, /setTimeout\([^,]+,\s*RETRY_DELAY_MS\s*\)/,
+      'retry setTimeout must use RETRY_DELAY_MS');
+    assert.match(playerJs, /setTimeout\([^,]+,\s*IDLE_TIMEOUT_MS\s*\)/,
+      'idle setTimeout must use IDLE_TIMEOUT_MS');
+    assert.match(playerJs, /setTimeout\([^,]+,\s*BRANDING_FADE_DELAY_MS\s*\)/,
+      'branding fade setTimeout must use BRANDING_FADE_DELAY_MS');
   });
 
   it('volume is clamped to [0, 1] on arrow keys', () => {
@@ -233,6 +323,15 @@ describe('player.js logic', () => {
       'must request the normal window state on restore');
   });
 
+  it('radio mode: skips window-state changes on Firefox (tabs don\'t minimize)', () => {
+    const fn = playerJs.slice(
+      playerJs.indexOf('function setWindowState'),
+      playerJs.indexOf('// --- Overlays ---')
+    );
+    assert.match(fn, /isFirefox\(\)\s*\)\s*return/,
+      'setWindowState must early-return on Firefox');
+  });
+
   it('radio mode: listens for set-radio messages from the popup', () => {
     assert.ok(playerJs.includes('chrome.runtime.onMessage.addListener'),
       'must register a chrome.runtime.onMessage listener');
@@ -288,6 +387,20 @@ describe('player.js logic', () => {
       'fullscreen must target playerContainer');
     assert.ok(!playerJs.includes('documentElement.requestFullscreen'),
       'must not fullscreen the entire document');
+  });
+
+  it('radio-face has no hard-coded controls-bar offset', () => {
+    // Layout fragility regression guard: previously #radio-face used
+    // `bottom: 34px` to dodge the controls bar — wrong if controls resize,
+    // font scales, or wrapping happens. Anchored to #video-area now, inset:0.
+    const block = playerCss.slice(
+      playerCss.indexOf('#radio-face'),
+      playerCss.indexOf('#radio-face') + 600
+    );
+    assert.ok(!/bottom:\s*\d+px/.test(block),
+      '#radio-face must not use a hard-coded bottom offset');
+    assert.match(block, /inset:\s*0/,
+      '#radio-face must use inset:0 inside its own positioning context');
   });
 
   it('consolidates native canplay into a single { once: true } listener', () => {

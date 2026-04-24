@@ -10,6 +10,7 @@ Watch **Iran National Revolution TV** live in a dedicated pop-up player, directl
 - Double-click to toggle fullscreen; scoped to the player, not the whole page
 - Keyboard shortcuts (press `?` in the player for the full list)
 - Zero permissions — no browsing data, no tracking, no storage
+- Chrome opens the player in a resizable popup window; Firefox opens it in a new tab (popup-type windows on Firefox have platform limitations)
 - English and Persian (فارسی) store listings
 - Works on Chrome and Firefox
 

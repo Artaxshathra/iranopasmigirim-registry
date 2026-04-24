@@ -7,15 +7,17 @@
 </head>
 <body>
   <div id="player-container">
-    <video id="video" playsinline aria-label="INRTV live stream"></video>
+    <div id="video-area">
+      <video id="video" playsinline aria-label="INRTV live stream"></video>
 
-    <div id="radio-face" aria-hidden="true">
-      <div class="radio-pulse"></div>
-      <p class="radio-label">Radio mode</p>
-      <p class="radio-sub">INRTV · Live audio</p>
+      <div id="radio-face" aria-hidden="true">
+        <div class="radio-pulse"></div>
+        <p class="radio-label">Radio mode</p>
+        <p class="radio-sub">INRTV · Live audio</p>
+      </div>
+
+      <div id="branding" class="branding" aria-hidden="true">INRTV</div>
     </div>
-
-    <div id="branding" class="branding" aria-hidden="true">INRTV</div>
 
     <div id="controls">
       <button id="btn-play" class="ctrl" title="Play / Pause (k)" aria-label="Play">
@@ -66,7 +68,7 @@
           <dt>M</dt><dd>Mute / Unmute</dd>
           <dt>F</dt><dd>Fullscreen</dd>
           <dt>P</dt><dd>Picture-in-Picture</dd>
-          <dt>R</dt><dd>Radio mode (audio only)</dd>
+          <dt>R</dt><dd>Radio mode (audio focus)</dd>
           <dt>↑ / ↓</dt><dd>Volume up / down</dd>
           <dt>?</dt><dd>Toggle this help</dd>
         </dl>

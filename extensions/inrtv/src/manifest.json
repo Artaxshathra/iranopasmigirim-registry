@@ -5,8 +5,6 @@
   "description": "__MSG_extDescription__",
   "default_locale": "en",
 
-  "host_permissions": ["https://hls.irannrtv.live/*"],
-
   "action": {
     "default_popup": "popup.html",
     "default_icon": {

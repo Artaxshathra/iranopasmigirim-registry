@@ -1,7 +1,12 @@
 'use strict';
 
-// Stream URL — single source of truth (also in manifest.json host_permissions)
 const STREAM_URL = 'https://hls.irannrtv.live/hls/stream.m3u8';
+
+// Tunables — keep behavior together so it's easy to read and adjust.
+const MAX_FATAL_RETRIES = 5;
+const RETRY_DELAY_MS = 2000;
+const IDLE_TIMEOUT_MS = 3000;
+const BRANDING_FADE_DELAY_MS = 5000;
 
 const video = document.getElementById('video');
 const btnPlay = document.getElementById('btn-play');
@@ -21,8 +26,9 @@ const brandingEl = document.getElementById('branding');
 
 let hls = null;
 let statsInterval = null;
+let retryTimer = null;
+let idleTimer = null;
 let fatalRetries = 0;
-const MAX_FATAL_RETRIES = 5;
 
 // --- Init ---
 
@@ -91,7 +97,14 @@ function loadHls(url) {
         }
         fatalRetries++;
         showError('Network error. Retrying...');
-        setTimeout(function () { hls.startLoad(); }, 2000);
+        // Track the timer so destroy() can cancel it; guard the callback in case
+        // hls was torn down between the schedule and the fire.
+        if (retryTimer) clearTimeout(retryTimer);
+        retryTimer = setTimeout(function () {
+          retryTimer = null;
+          if (!hls) return;
+          hls.startLoad();
+        }, RETRY_DELAY_MS);
         break;
       case Hls.ErrorTypes.MEDIA_ERROR:
         showError('Media error. Recovering...');
@@ -170,7 +183,6 @@ function setupControls() {
   btnFs.addEventListener('click', toggleFullscreen);
   btnRadio.addEventListener('click', toggleRadio);
   playerContainer.addEventListener('dblclick', function (e) {
-    // Don't double-trigger when the dblclick lands on a control button.
     if (e.target.closest('#controls')) return;
     toggleFullscreen();
   });
@@ -187,18 +199,15 @@ function setupControls() {
 
   if (!document.pictureInPictureEnabled) btnPip.hidden = true;
 
-  // Hide branding after 5 seconds of playback
   video.addEventListener('playing', function () {
-    setTimeout(function () { brandingEl.classList.add('fade'); }, 5000);
+    setTimeout(function () { brandingEl.classList.add('fade'); }, BRANDING_FADE_DELAY_MS);
   }, { once: true });
 }
 
 function setupKeyboard() {
   document.addEventListener('keydown', function (e) {
-    // Don't hijack browser shortcuts (Ctrl+F find, Cmd+P print, etc.)
     if (e.ctrlKey || e.metaKey || e.altKey) return;
 
-    // Help overlay dismisses on any key
     if (!overlayHelp.hidden && e.key !== '?') { hideHelp(); return; }
 
     switch (e.key) {
@@ -248,14 +257,12 @@ function updateMuteIcon() {
 function isRadioOn() { return document.body.classList.contains('radio'); }
 
 function togglePip() {
-  // PiP of a hidden video is a blank window; ignore the request in radio mode.
   if (isRadioOn()) return;
   if (document.pictureInPictureElement) document.exitPictureInPicture();
   else video.requestPictureInPicture().catch(function () {});
 }
 
 function toggleFullscreen() {
-  // Fullscreen of a hidden video is meaningless; ignore in radio mode.
   if (isRadioOn()) return;
   if (document.fullscreenElement) document.exitFullscreen();
   else playerContainer.requestFullscreen();
@@ -264,22 +271,26 @@ function toggleFullscreen() {
 function setRadio(on) {
   document.body.classList.toggle('radio', on);
   btnRadio.setAttribute('data-state', on ? 'on' : 'off');
-  // Button names its next action; icon flips to match (CSS rules in player.css).
   const nextAction = on ? 'Switch to video' : 'Switch to radio';
   btnRadio.setAttribute('aria-label', nextAction);
   btnRadio.setAttribute('title', nextAction + ' (r)');
   video.setAttribute('aria-label', on ? 'INRTV live audio' : 'INRTV live stream');
-  // Exit fullscreen when entering radio mode — the video surface is now hidden.
   if (on && document.fullscreenElement) document.exitFullscreen();
   setWindowState(on ? 'minimized' : 'normal');
 }
 
 function toggleRadio() { setRadio(!isRadioOn()); }
 
+function isFirefox() {
+  return typeof navigator !== 'undefined' && /\bFirefox\//.test(navigator.userAgent);
+}
+
 // Minimize the popup window so "radio mode" feels like a radio (no floating
 // video window). Uses chrome.windows on the extension's own window — no
-// permission required. Silently no-ops outside the extension context.
+// permission required. On Firefox we open the player as a tab (see popup.js),
+// and tabs don't minimize — so skip this path cleanly.
 function setWindowState(state) {
+  if (isFirefox()) return;
   if (typeof chrome === 'undefined' || !chrome.windows) return;
   chrome.windows.getCurrent(function (win) {
     if (!win || chrome.runtime.lastError) return;
@@ -291,8 +302,12 @@ function setWindowState(state) {
 }
 
 // --- Overlays ---
+// Mutually exclusive: showing one hides the others so the user never sees a
+// stacked spinner-behind-error or a play-prompt over a loading state.
 
 function showError(msg) {
+  hideLoading();
+  hidePlayPrompt();
   errorMsg.textContent = msg;
   overlayError.hidden = false;
 }
@@ -302,6 +317,7 @@ function hideLoading() { overlayLoading.hidden = true; }
 
 function showPlayPrompt() {
   hideLoading();
+  hideError();
   overlayPlay.hidden = false;
 }
 
@@ -318,15 +334,14 @@ overlayPlay.addEventListener('keydown', function (e) {
 
 overlayHelp.addEventListener('click', hideHelp);
 
-// --- Idle auto-hide (controls + branding fade after 3s of inactivity) ---
+// --- Idle auto-hide (controls + branding fade after inactivity) ---
 
-let idleTimer = null;
 function wake() {
   document.body.classList.remove('idle');
   if (idleTimer) clearTimeout(idleTimer);
   idleTimer = setTimeout(function () {
     if (!video.paused) document.body.classList.add('idle');
-  }, 3000);
+  }, IDLE_TIMEOUT_MS);
 }
 playerContainer.addEventListener('mousemove', wake);
 playerContainer.addEventListener('mouseleave', function () {
@@ -340,10 +355,16 @@ video.addEventListener('pause', function () {
 wake();
 
 // --- Cleanup ---
+// Single source of truth for teardown. Anything that schedules async work or
+// holds a native resource must be released here.
 
-window.addEventListener('pagehide', function () {
+function destroy() {
+  if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
+  if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
   if (statsInterval) { clearInterval(statsInterval); statsInterval = null; }
   if (hls) { hls.destroy(); hls = null; }
-});
+}
+
+window.addEventListener('pagehide', destroy);
 
 init();

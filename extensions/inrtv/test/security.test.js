@@ -96,20 +96,22 @@ describe('security: HTML source', () => {
   });
 });
 
-describe('security: stream URL ↔ host_permissions consistency', () => {
-  it('stream URL domain matches host_permissions', () => {
+describe('security: stream URL ↔ CSP consistency', () => {
+  it('stream URL domain is pinned in CSP connect-src and media-src', () => {
     const playerJs = jsFiles.find(f => f.name === 'player.js');
     assert.ok(playerJs);
     const urlMatch = playerJs.content.match(/STREAM_URL\s*=\s*['"]([^'"]+)['"]/);
     assert.ok(urlMatch, 'STREAM_URL must be defined');
     const streamUrl = new URL(urlMatch[1]);
 
-    // host_permissions must cover the stream domain
-    const covered = manifest.host_permissions.some(hp => {
-      const hpUrl = new URL(hp.replace('/*', '/'));
-      return hpUrl.hostname === streamUrl.hostname && hpUrl.protocol === streamUrl.protocol;
-    });
-    assert.ok(covered, `stream domain ${streamUrl.hostname} must be in host_permissions`);
+    const csp = manifest.content_security_policy.extension_pages;
+    const origin = streamUrl.protocol + '//' + streamUrl.hostname;
+    const connect = csp.match(/connect-src\s+([^;]+)/);
+    const media = csp.match(/media-src\s+([^;]+)/);
+    assert.ok(connect && connect[1].includes(origin),
+      `CSP connect-src must pin ${origin}`);
+    assert.ok(media && media[1].includes(origin),
+      `CSP media-src must pin ${origin}`);
   });
 
   it('stream URL uses https', () => {

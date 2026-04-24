@@ -41,6 +41,18 @@ All notable changes to the INRTV Live extension.
   hls.js runs on the main thread with `enableWorker: false`)
 - `base-uri 'self'` and `frame-ancestors 'none'` added to CSP
 - `connect-src` and `media-src` pinned to the stream host
+- **Dropped `host_permissions`** — CSP `connect-src`/`media-src` pins are the
+  real network-egress control. Firefox MV3 was surfacing a misleading "Can't
+  read and change data on this site" message on our toolbar icon because of
+  the declaration, without adding any capability we actually use
+
+### Firefox
+- Player opens in a new tab on Firefox instead of a popup-type window.
+  Firefox's `windows.create({type:'popup',...})` ignores requested dimensions
+  and popup-type windows can't reliably minimize, so radio mode's
+  minimize-on-entry was a silent no-op. Opening as a tab gives full browser
+  chrome, proper resizing, and consistent behavior. Chrome is unchanged
+  (still a 960×560 popup window that minimizes in radio mode)
 
 ### Build
 - Reproducible zips (SOURCE_DATE_EPOCH, mtime normalization, `zip -X`) — Chrome

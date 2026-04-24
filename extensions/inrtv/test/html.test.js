@@ -165,6 +165,20 @@ describe('player.html', () => {
       }
     }
   });
+
+  it('#video and #radio-face share a #video-area wrapper', () => {
+    // Layout invariant: radio-face anchors to #video-area (not the whole
+    // player), so it can use inset:0 without overlapping the controls bar.
+    // No magic 34px offset.
+    const videoArea = html.indexOf('id="video-area"');
+    const videoEl = html.indexOf('id="video"');
+    const radioFace = html.indexOf('id="radio-face"');
+    const controls = html.indexOf('id="controls"');
+    assert.ok(videoArea > 0, '#video-area wrapper must exist');
+    assert.ok(videoEl > videoArea, '#video must be inside #video-area');
+    assert.ok(radioFace > videoArea, '#radio-face must be inside #video-area');
+    assert.ok(radioFace < controls, '#radio-face must come before #controls');
+  });
 });
 
 // ── popup.html ──────────────────────────────────────────────
@@ -270,5 +284,17 @@ describe('popup.js logic', () => {
 
   it('player URL includes ?radio=1 for radio mode', () => {
     assert.match(js, /\?radio=1/, 'must construct the radio URL variant');
+  });
+
+  it('createPlayer branches on Firefox: chrome.tabs.create, not chrome.windows.create', () => {
+    // Firefox popup-type windows ignore requested dimensions and can't reliably
+    // minimize — open the player as a regular tab there, keep popup window on Chrome.
+    assert.ok(js.includes('isFirefox'), 'must define an isFirefox check');
+    assert.ok(js.includes('chrome.tabs.create'),
+      'Firefox branch must use chrome.tabs.create');
+    assert.ok(js.includes('chrome.windows.create'),
+      'Chrome branch must still use chrome.windows.create');
+    assert.ok(js.includes('Firefox'),
+      'isFirefox must test the Firefox user-agent token');
   });
 });

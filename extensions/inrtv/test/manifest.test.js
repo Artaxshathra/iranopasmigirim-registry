@@ -36,16 +36,12 @@ describe('manifest.json', () => {
     assert.equal(manifest.permissions, undefined, 'permissions array must not exist');
   });
 
-  it('host_permissions uses only https scheme', () => {
-    assert.ok(Array.isArray(manifest.host_permissions));
-    for (const hp of manifest.host_permissions) {
-      assert.match(hp, /^https:\/\//, `host_permission "${hp}" must use https://`);
-    }
-  });
-
-  it('host_permissions contains only the stream domain', () => {
-    assert.equal(manifest.host_permissions.length, 1);
-    assert.equal(manifest.host_permissions[0], 'https://hls.irannrtv.live/*');
+  it('declares no host_permissions', () => {
+    // CSP connect-src/media-src pins the stream host; host_permissions would
+    // trigger Firefox's "Can't read and change data on this site" without
+    // adding any real capability for this extension.
+    assert.equal(manifest.host_permissions, undefined,
+      'host_permissions must not exist — CSP alone constrains network egress');
   });
 
   it('has no background script or service worker', () => {
