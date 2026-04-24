@@ -158,9 +158,8 @@ function setupControls() {
   btnFs.addEventListener('click', toggleFullscreen);
   btnRadio.addEventListener('click', toggleRadio);
   playerContainer.addEventListener('dblclick', function (e) {
-    // Double-clicking the radio toggle shouldn't also fullscreen.
+    // Don't double-trigger when the dblclick lands on a control button.
     if (e.target.closest('#controls')) return;
-    if (document.body.classList.contains('radio')) return;
     toggleFullscreen();
   });
 
@@ -234,12 +233,18 @@ function updateMuteIcon() {
   btnMute.setAttribute('aria-label', video.muted ? 'Unmute' : 'Mute');
 }
 
+function isRadioOn() { return document.body.classList.contains('radio'); }
+
 function togglePip() {
+  // PiP of a hidden video is a blank window; ignore the request in radio mode.
+  if (isRadioOn()) return;
   if (document.pictureInPictureElement) document.exitPictureInPicture();
   else video.requestPictureInPicture().catch(function () {});
 }
 
 function toggleFullscreen() {
+  // Fullscreen of a hidden video is meaningless; ignore in radio mode.
+  if (isRadioOn()) return;
   if (document.fullscreenElement) document.exitFullscreen();
   else playerContainer.requestFullscreen();
 }
@@ -247,10 +252,10 @@ function toggleFullscreen() {
 function toggleRadio() {
   const on = document.body.classList.toggle('radio');
   btnRadio.setAttribute('data-state', on ? 'on' : 'off');
+  // The button's label names its function; aria-pressed carries the on/off state.
   btnRadio.setAttribute('aria-pressed', on ? 'true' : 'false');
-  btnRadio.setAttribute('aria-label', on ? 'Video mode' : 'Radio mode');
   video.setAttribute('aria-label', on ? 'INRTV live audio' : 'INRTV live stream');
-  // Exit fullscreen if entering radio mode — fullscreen of a hidden video is nonsense.
+  // Exit fullscreen when entering radio mode — the video surface is now hidden.
   if (on && document.fullscreenElement) document.exitFullscreen();
 }
 

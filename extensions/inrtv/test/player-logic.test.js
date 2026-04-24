@@ -205,11 +205,42 @@ describe('player.js logic', () => {
   });
 
   it('radio mode: exits fullscreen when enabled', () => {
-    const fn = playerJs.slice(playerJs.indexOf('function toggleRadio'));
+    const fn = playerJs.slice(
+      playerJs.indexOf('function toggleRadio'),
+      playerJs.indexOf('// --- Overlays ---')
+    );
     assert.ok(fn.includes('document.exitFullscreen'),
       'entering radio mode must exit fullscreen if active');
   });
 
+  it('radio mode: toggleFullscreen is a no-op while radio is on', () => {
+    const fn = playerJs.slice(
+      playerJs.indexOf('function toggleFullscreen'),
+      playerJs.indexOf('function toggleRadio')
+    );
+    assert.match(fn, /isRadioOn\(\)\s*\)\s*return/,
+      'toggleFullscreen must early-return when radio mode is on');
+  });
+
+  it('radio mode: togglePip is a no-op while radio is on', () => {
+    const fn = playerJs.slice(
+      playerJs.indexOf('function togglePip'),
+      playerJs.indexOf('function toggleFullscreen')
+    );
+    assert.match(fn, /isRadioOn\(\)\s*\)\s*return/,
+      'togglePip must early-return when radio mode is on');
+  });
+
+  it('radio mode: button label names the function, not the action', () => {
+    // aria-pressed carries on/off state; the label must stay stable so screen
+    // readers don't announce a contradictory "Video mode, pressed".
+    const fn = playerJs.slice(
+      playerJs.indexOf('function toggleRadio'),
+      playerJs.indexOf('// --- Overlays ---')
+    );
+    assert.ok(!fn.includes("'Video mode'"),
+      "toggleRadio must not swap the button's aria-label to 'Video mode'");
+  });
 
   it('fullscreen targets the player container, not the whole document', () => {
     assert.ok(playerJs.includes('playerContainer.requestFullscreen'),

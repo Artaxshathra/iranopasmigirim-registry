@@ -223,7 +223,9 @@ body.idle #video {
   background: #000;
   color: #e0e0e0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-  z-index: 1;
+  /* Sits above error (10) and loading (5) so radio mode stays legible
+     during reconnects; stays below the help modal (12). */
+  z-index: 11;
   pointer-events: none;
 }
 
