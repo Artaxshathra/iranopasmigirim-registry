@@ -2,6 +2,39 @@
 
 All notable changes to the INRTV Live extension.
 
+## [1.1.1] — 2026-04-25
+
+### Fixed
+- **Crash on close after a network error.** The fatal-network retry was
+  scheduled with `setTimeout` but never tracked. If the player window closed
+  before it fired, the callback ran against a destroyed `hls` instance and
+  threw. Retry is now stored in `retryTimer`, cancelled by `destroy()`, and
+  guards `if (!hls) return` defensively.
+- **Stacked overlays on early failures.** `showError()` only unhid the error
+  overlay, so the loading spinner stayed visible behind it. Error and
+  play-prompt overlays are now mutually exclusive — showing one hides the
+  others.
+- **Brittle radio-mode layout.** `#radio-face` used a hard-coded `bottom: 34px`
+  to dodge the controls bar. Wrapped `#video` and `#radio-face` in a new
+  `#video-area` flex item so radio-face can use `inset: 0` within its own
+  positioning context — survives font/zoom/control-height changes.
+- **Help overlay copy.** "Radio mode (audio only)" → "Radio mode (audio focus)"
+  to match what the mode actually does (the HLS stream still demuxes; the
+  video surface is just hidden).
+
+### Changed
+- All teardown lives in a single `destroy()` function — retry timer, idle
+  timer, branding-fade timer, stats interval, and `hls`. Adding new resources
+  becomes one-line safe.
+- Behavior tunables are now named constants at the top of `player.js`:
+  `RETRY_DELAY_MS`, `IDLE_TIMEOUT_MS`, `BRANDING_FADE_DELAY_MS`,
+  `STATS_INTERVAL_MS`, plus `PLAYER_WIDTH`/`PLAYER_HEIGHT` in `popup.js`.
+
+### Tests
+- 145/145 (added 9 covering retry-timer cleanup, mutually-exclusive overlays,
+  named-constants usage, `#video-area` HTML structure, no-magic-offset CSS
+  regression guard).
+
 ## [1.1.0] — 2026-04-24
 
 ### Added

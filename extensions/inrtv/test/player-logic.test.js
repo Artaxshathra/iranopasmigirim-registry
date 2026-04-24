@@ -131,6 +131,8 @@ describe('player.js logic', () => {
       'IDLE_TIMEOUT_MS must be a named constant');
     assert.match(playerJs, /const\s+BRANDING_FADE_DELAY_MS\s*=/,
       'BRANDING_FADE_DELAY_MS must be a named constant');
+    assert.match(playerJs, /const\s+STATS_INTERVAL_MS\s*=/,
+      'STATS_INTERVAL_MS must be a named constant');
     // And those constants must actually be used (not shadowed by literals).
     assert.match(playerJs, /setTimeout\([^,]+,\s*RETRY_DELAY_MS\s*\)/,
       'retry setTimeout must use RETRY_DELAY_MS');
@@ -138,6 +140,20 @@ describe('player.js logic', () => {
       'idle setTimeout must use IDLE_TIMEOUT_MS');
     assert.match(playerJs, /setTimeout\([^,]+,\s*BRANDING_FADE_DELAY_MS\s*\)/,
       'branding fade setTimeout must use BRANDING_FADE_DELAY_MS');
+    assert.match(playerJs, /setInterval\([^,]+,\s*STATS_INTERVAL_MS\s*\)/,
+      'stats setInterval must use STATS_INTERVAL_MS');
+  });
+
+  it('teardown: destroy() cancels the branding-fade timer', () => {
+    // Branding fade is scheduled 5s after first 'playing'. If the window
+    // closes inside that window the callback runs on a detached DOM —
+    // harmless but untidy; track and cancel for symmetry with the others.
+    const destroyFn = playerJs.slice(
+      playerJs.indexOf('function destroy'),
+      playerJs.indexOf('function destroy') + 500
+    );
+    assert.match(destroyFn, /clearTimeout\(\s*brandingTimer\s*\)/,
+      'destroy() must clearTimeout(brandingTimer)');
   });
 
   it('volume is clamped to [0, 1] on arrow keys', () => {

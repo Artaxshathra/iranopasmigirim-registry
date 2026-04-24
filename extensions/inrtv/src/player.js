@@ -7,6 +7,7 @@ const MAX_FATAL_RETRIES = 5;
 const RETRY_DELAY_MS = 2000;
 const IDLE_TIMEOUT_MS = 3000;
 const BRANDING_FADE_DELAY_MS = 5000;
+const STATS_INTERVAL_MS = 2000;
 
 const video = document.getElementById('video');
 const btnPlay = document.getElementById('btn-play');
@@ -28,6 +29,7 @@ let hls = null;
 let statsInterval = null;
 let retryTimer = null;
 let idleTimer = null;
+let brandingTimer = null;
 let fatalRetries = 0;
 
 // --- Init ---
@@ -138,7 +140,7 @@ function loadNative(url) {
 // --- Stats ---
 
 function startStats() {
-  statsInterval = setInterval(updateStats, 2000);
+  statsInterval = setInterval(updateStats, STATS_INTERVAL_MS);
   updateStats();
 }
 
@@ -200,7 +202,10 @@ function setupControls() {
   if (!document.pictureInPictureEnabled) btnPip.hidden = true;
 
   video.addEventListener('playing', function () {
-    setTimeout(function () { brandingEl.classList.add('fade'); }, BRANDING_FADE_DELAY_MS);
+    brandingTimer = setTimeout(function () {
+      brandingTimer = null;
+      brandingEl.classList.add('fade');
+    }, BRANDING_FADE_DELAY_MS);
   }, { once: true });
 }
 
@@ -361,6 +366,7 @@ wake();
 function destroy() {
   if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
   if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
+  if (brandingTimer) { clearTimeout(brandingTimer); brandingTimer = null; }
   if (statsInterval) { clearInterval(statsInterval); statsInterval = null; }
   if (hls) { hls.destroy(); hls = null; }
 }
