@@ -6,7 +6,7 @@ Watch **Iran National Revolution TV** live in a dedicated pop-up player, directl
 
 - One-click live stream in a clean pop-up window
 - Built-in HLS player (hls.js, Apache-2.0)
-- **Radio mode** — hide the video and listen like a radio (press `R`)
+- **Radio mode** — listen like a radio: the player window minimizes and audio keeps playing. Start it from the popup's "Listen (Radio)" button, or press `R` in the player to toggle anytime
 - Double-click to toggle fullscreen; scoped to the player, not the whole page
 - Keyboard shortcuts (press `?` in the player for the full list)
 - Zero permissions — no browsing data, no tracking, no storage

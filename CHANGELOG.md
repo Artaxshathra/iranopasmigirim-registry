@@ -5,10 +5,15 @@ All notable changes to the INRTV Live extension.
 ## [1.1.0] — 2026-04-24
 
 ### Added
-- **Radio mode** — press `R` or click the new toolbar button to hide the video
-  and listen to the stream like a radio. Minimal pulsing face with "Radio mode"
-  label; no new permissions or network activity (the audio is muxed into the
-  existing HLS stream)
+- **Radio mode** — press `R`, click the toolbar button, or start directly from
+  the popup's "Listen (Radio)" button. Hides the video, minimizes the player
+  window, and keeps audio playing so it truly feels like a radio. Toggles back
+  to video cleanly (window restores, video re-appears — audio never stops). The
+  popup reuses an already-open player window: clicking Watch or Listen switches
+  the existing window's mode instead of opening a duplicate. No new permissions.
+- The radio button's icon names the *next* action: in video mode it shows the
+  radio glyph (click → switch to radio); in radio mode it shows the TV glyph
+  (click → switch back to video). `aria-label` mirrors this.
 - **Double-click to toggle fullscreen** — matches universal video-player
   convention
 - **Persian (`fa`) locale** for the store listing (`تلویزیون انقلاب ملی ایران

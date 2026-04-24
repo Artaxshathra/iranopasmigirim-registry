@@ -37,6 +37,18 @@ function init() {
   }
   setupControls();
   setupKeyboard();
+  setupMessaging();
+  if (new URLSearchParams(location.search).get('radio') === '1') setRadio(true);
+}
+
+function setupMessaging() {
+  if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.onMessage) return;
+  chrome.runtime.onMessage.addListener(function (msg, _sender, sendResponse) {
+    if (msg && msg.type === 'set-radio') {
+      setRadio(!!msg.on);
+      sendResponse({ ok: true });
+    }
+  });
 }
 
 // --- Stream loading ---
@@ -249,14 +261,33 @@ function toggleFullscreen() {
   else playerContainer.requestFullscreen();
 }
 
-function toggleRadio() {
-  const on = document.body.classList.toggle('radio');
+function setRadio(on) {
+  document.body.classList.toggle('radio', on);
   btnRadio.setAttribute('data-state', on ? 'on' : 'off');
-  // The button's label names its function; aria-pressed carries the on/off state.
-  btnRadio.setAttribute('aria-pressed', on ? 'true' : 'false');
+  // Button names its next action; icon flips to match (CSS rules in player.css).
+  const nextAction = on ? 'Switch to video' : 'Switch to radio';
+  btnRadio.setAttribute('aria-label', nextAction);
+  btnRadio.setAttribute('title', nextAction + ' (r)');
   video.setAttribute('aria-label', on ? 'INRTV live audio' : 'INRTV live stream');
   // Exit fullscreen when entering radio mode — the video surface is now hidden.
   if (on && document.fullscreenElement) document.exitFullscreen();
+  setWindowState(on ? 'minimized' : 'normal');
+}
+
+function toggleRadio() { setRadio(!isRadioOn()); }
+
+// Minimize the popup window so "radio mode" feels like a radio (no floating
+// video window). Uses chrome.windows on the extension's own window — no
+// permission required. Silently no-ops outside the extension context.
+function setWindowState(state) {
+  if (typeof chrome === 'undefined' || !chrome.windows) return;
+  chrome.windows.getCurrent(function (win) {
+    if (!win || chrome.runtime.lastError) return;
+    const update = state === 'minimized'
+      ? { state: 'minimized' }
+      : { state: 'normal', focused: true };
+    chrome.windows.update(win.id, update, function () { void chrome.runtime.lastError; });
+  });
 }
 
 // --- Overlays ---

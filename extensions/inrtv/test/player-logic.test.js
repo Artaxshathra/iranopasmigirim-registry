@@ -179,10 +179,11 @@ describe('player.js logic', () => {
       'dblclick handler must call toggleFullscreen');
   });
 
-  it('radio mode: toggleRadio toggles the body.radio class', () => {
+  it('radio mode: setRadio toggles the body.radio class', () => {
     assert.ok(playerJs.includes('toggleRadio'), 'toggleRadio must be defined');
-    assert.match(playerJs, /classList\.toggle\(\s*['"]radio['"]\s*\)/,
-      'toggleRadio must toggle body class "radio"');
+    assert.ok(playerJs.includes('setRadio'), 'setRadio must be defined');
+    assert.match(playerJs, /classList\.toggle\(\s*['"]radio['"]\s*,/,
+      'setRadio must set body class "radio" via classList.toggle(name, force)');
   });
 
   it('radio mode: button is registered and bound to toggleRadio', () => {
@@ -199,18 +200,58 @@ describe('player.js logic', () => {
       "keyboard 'r' case must call toggleRadio");
   });
 
-  it('radio mode: updates aria-pressed on the radio button', () => {
-    assert.ok(playerJs.includes("setAttribute('aria-pressed'"),
-      'toggleRadio must update aria-pressed for assistive tech');
+  it('radio mode: aria-label announces the next action (switch to video/radio)', () => {
+    // The button is a switch-to-other-mode control; its label changes to name
+    // what clicking it will do now. Icon follows via CSS.
+    const fn = playerJs.slice(
+      playerJs.indexOf('function setRadio'),
+      playerJs.indexOf('function toggleRadio')
+    );
+    assert.ok(fn.includes('Switch to video') && fn.includes('Switch to radio'),
+      'setRadio must set aria-label to "Switch to video" or "Switch to radio"');
+    assert.match(fn, /setAttribute\(\s*['"]aria-label['"]/,
+      'setRadio must call setAttribute("aria-label", ...)');
   });
 
   it('radio mode: exits fullscreen when enabled', () => {
     const fn = playerJs.slice(
-      playerJs.indexOf('function toggleRadio'),
-      playerJs.indexOf('// --- Overlays ---')
+      playerJs.indexOf('function setRadio'),
+      playerJs.indexOf('function toggleRadio')
     );
     assert.ok(fn.includes('document.exitFullscreen'),
       'entering radio mode must exit fullscreen if active');
+  });
+
+  it('radio mode: minimizes the popup window on entry, restores on exit', () => {
+    assert.ok(playerJs.includes('setWindowState'),
+      'must define a setWindowState helper');
+    assert.match(playerJs, /setWindowState\(\s*on\s*\?\s*['"]minimized['"]\s*:\s*['"]normal['"]\s*\)/,
+      'setRadio must minimize on entry and restore on exit');
+    assert.ok(playerJs.includes("state: 'minimized'"),
+      'must request the minimized window state');
+    assert.ok(playerJs.includes("state: 'normal'"),
+      'must request the normal window state on restore');
+  });
+
+  it('radio mode: listens for set-radio messages from the popup', () => {
+    assert.ok(playerJs.includes('chrome.runtime.onMessage.addListener'),
+      'must register a chrome.runtime.onMessage listener');
+    assert.match(playerJs, /type\s*===\s*['"]set-radio['"]/,
+      'listener must handle type "set-radio"');
+    assert.match(playerJs, /setRadio\(\s*!!\s*msg\.on\s*\)/,
+      'listener must forward msg.on to setRadio');
+    // The popup's sendMessage callback fires only when a receiver calls
+    // sendResponse OR when there are no receivers. A silent listener would
+    // leave the popup's window.close() pending until port disconnect.
+    assert.match(playerJs, /sendResponse\(\s*\{[^}]*ok/,
+      'listener must call sendResponse so the popup callback completes');
+  });
+
+  it('radio mode: ?radio=1 URL param enters radio mode on boot', () => {
+    assert.match(playerJs, /URLSearchParams\(location\.search\)\.get\(\s*['"]radio['"]\s*\)\s*===\s*['"]1['"]/,
+      'init must check ?radio=1 and enter radio mode');
+    assert.match(playerJs, /setRadio\(\s*true\s*\)/,
+      'boot-time radio path must call setRadio(true)');
   });
 
   it('radio mode: toggleFullscreen is a no-op while radio is on', () => {
@@ -235,11 +276,11 @@ describe('player.js logic', () => {
     // aria-pressed carries on/off state; the label must stay stable so screen
     // readers don't announce a contradictory "Video mode, pressed".
     const fn = playerJs.slice(
-      playerJs.indexOf('function toggleRadio'),
-      playerJs.indexOf('// --- Overlays ---')
+      playerJs.indexOf('function setRadio'),
+      playerJs.indexOf('function toggleRadio')
     );
     assert.ok(!fn.includes("'Video mode'"),
-      "toggleRadio must not swap the button's aria-label to 'Video mode'");
+      "setRadio must not swap the button's aria-label to 'Video mode'");
   });
 
   it('fullscreen targets the player container, not the whole document', () => {

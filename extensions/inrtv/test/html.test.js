@@ -193,6 +193,10 @@ describe('popup.html', () => {
     assert.match(html, /id=["']btn-watch["']/);
   });
 
+  it('btn-listen button exists (radio entry point)', () => {
+    assert.match(html, /id=["']btn-listen["']/);
+  });
+
   it('link-site element exists', () => {
     assert.match(html, /id=["']link-site["']/);
   });
@@ -236,5 +240,35 @@ describe('popup.html', () => {
         assert.ok(fs.existsSync(path.join(SRC, src)), `JS file must exist: ${src}`);
       }
     }
+  });
+});
+
+// ── popup.js ──────────────────────────────────────────────
+
+describe('popup.js logic', () => {
+  const js = fs.readFileSync(path.join(SRC, 'popup.js'), 'utf8');
+
+  it('starts with use strict', () => {
+    assert.ok(js.trimStart().startsWith("'use strict'"));
+  });
+
+  it('btn-watch and btn-listen both route through openOrSwitch', () => {
+    assert.match(js, /btn-watch[\s\S]*?openOrSwitch\(\s*false\s*\)/,
+      'Watch button must call openOrSwitch(false)');
+    assert.match(js, /btn-listen[\s\S]*?openOrSwitch\(\s*true\s*\)/,
+      'Listen button must call openOrSwitch(true)');
+  });
+
+  it('openOrSwitch broadcasts set-radio and only creates a new window on no-receiver', () => {
+    assert.ok(js.includes('chrome.runtime.sendMessage'),
+      'must broadcast via chrome.runtime.sendMessage (works on Firefox, no permission)');
+    assert.match(js, /type:\s*['"]set-radio['"]/,
+      'mode-switch message must use type "set-radio"');
+    assert.match(js, /chrome\.runtime\.lastError[\s\S]*?createPlayer/,
+      'must fall back to createPlayer only when lastError fires (no receiver)');
+  });
+
+  it('player URL includes ?radio=1 for radio mode', () => {
+    assert.match(js, /\?radio=1/, 'must construct the radio URL variant');
   });
 });

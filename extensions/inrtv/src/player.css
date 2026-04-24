@@ -65,10 +65,12 @@ html, body {
 #btn-mute[data-state="muted"] .icon-vol { display: none; }
 #btn-mute[data-state="muted"] .icon-muted { display: inline-block; }
 
-/* Radio icon state (shows TV icon by default; radio icon when radio mode is on) */
-#btn-radio .icon-radio { display: none; }
-#btn-radio[data-state="on"] .icon-tv { display: none; }
-#btn-radio[data-state="on"] .icon-radio { display: inline-block; }
+/* Radio button icon shows the ACTION, not the current state:
+   - video mode (default): show radio glyph → click switches to radio
+   - radio mode (on):      show TV glyph    → click switches back to video */
+#btn-radio .icon-tv { display: none; }
+#btn-radio[data-state="on"] .icon-radio { display: none; }
+#btn-radio[data-state="on"] .icon-tv { display: inline-block; }
 
 .ctrl:hover { background: #333; }
 
@@ -207,6 +209,13 @@ body.idle .branding {
   pointer-events: none;
 }
 
+/* Keep controls visible in radio mode so the user can exit (the video surface
+   is hidden, so there's nothing to clean up visually). */
+body.radio.idle #controls {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 body.idle #video {
   cursor: none;
 }
@@ -215,7 +224,12 @@ body.idle #video {
 
 #radio-face {
   position: absolute;
-  inset: 0;
+  /* Cover only the video surface, not the controls bar at the bottom —
+     the radio-toggle button must stay clickable to exit radio mode. */
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 34px;
   display: none;
   flex-direction: column;
   align-items: center;
