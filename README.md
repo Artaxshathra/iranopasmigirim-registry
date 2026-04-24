@@ -6,7 +6,11 @@ Watch **Iran National Revolution TV** live in a dedicated pop-up player, directl
 
 - One-click live stream in a clean pop-up window
 - Built-in HLS player (hls.js, Apache-2.0)
+- **Radio mode** — hide the video and listen like a radio (press `R`)
+- Double-click to toggle fullscreen; scoped to the player, not the whole page
+- Keyboard shortcuts (press `?` in the player for the full list)
 - Zero permissions — no browsing data, no tracking, no storage
+- English and Persian (فارسی) store listings
 - Works on Chrome and Firefox
 
 ## Install
@@ -20,33 +24,35 @@ Watch **Iran National Revolution TV** live in a dedicated pop-up player, directl
 
 ```bash
 cd extensions/inrtv
-
-# Download hls.js (one-time, SHA-256 verified)
-./bootstrap.sh
-
-# Build Chrome + Firefox zips
 ./build.sh
 ```
 
 Output: `extensions/inrtv/dist/inrtv-chrome.zip` and `inrtv-firefox.zip`.
+
+Builds are reproducible — Chrome and Firefox zips are byte-identical across
+runs (SOURCE_DATE_EPOCH, normalized mtimes, `zip -X`).
+
+If you need to regenerate `src/lib/hls.min.js` from scratch (instead of using
+the tracked copy), run `./bootstrap.sh` first — it downloads hls.js v1.6.16
+and verifies its SHA-256.
 
 ## Project structure
 
 ```
 extensions/inrtv/
   src/
-    manifest.json       Chrome MV3 manifest
-    popup.html/js/css   Toolbar popup
-    player.html/js/css  Live stream player
-    lib/hls.min.js      Bundled HLS library (gitignored)
-    icons/              Extension icons (Lion and Sun)
-    _locales/en/        English strings
-  bootstrap.sh          Download + verify hls.js
-  build.sh              Package Chrome & Firefox zips
-  LICENSE               hls.js Apache-2.0 license
+    manifest.json          Chrome MV3 manifest
+    popup.html/js/css      Toolbar popup
+    player.html/js/css     Live stream player
+    lib/hls.min.js         Bundled HLS library (tracked, SHA-256 pinned)
+    icons/                 Extension icons (Lion and Sun)
+    _locales/en, fa/       Store-listing strings (English + Persian)
+  bootstrap.sh             Re-fetch and verify hls.js (optional)
+  build.sh                 Package Chrome & Firefox zips (reproducible)
+  LICENSE                  hls.js Apache-2.0 license
 docs/
-  privacy-policy.html   Privacy policy
-store-assets/           Chrome Web Store images
+  privacy-policy.html      Privacy policy
+store-assets/              Chrome Web Store images
 ```
 
 ## Stream
@@ -72,16 +78,17 @@ cd extensions/inrtv
 npm test
 ```
 
-Test suites:
+Test suites (127 assertions across 7 files):
 
 | Suite | What it checks |
 |-------|----------------|
-| `manifest.test.js` | MV3 structure, permissions, CSP, icons, i18n |
-| `html.test.js` | Accessibility, structure, asset references |
+| `manifest.test.js` | MV3 structure, permissions, CSP, icons, en/fa locale parity |
+| `html.test.js` | Accessibility, structure, asset references, no inline scripts/styles |
 | `security.test.js` | No innerHTML/eval/http, no inline handlers, URL consistency |
-| `player-logic.test.js` | Strict mode, cleanup, keyboard, aria-label updates |
+| `player-logic.test.js` | Strict mode, cleanup, keyboard, radio mode, fullscreen target, a11y attributes |
 | `build.test.js` | Zip contents, license banner, Firefox gecko settings |
 | `bootstrap.test.js` | SHA-256 pinning, script integrity |
+| `reproducibility.test.js` | Byte-identical zip output across builds |
 
 ## Privacy
 
