@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "__MSG_extName__",
-  "version": "1.2.0",
+  "version": "1.2.2",
   "description": "__MSG_extDescription__",
   "default_locale": "en",
 
@@ -21,6 +21,6 @@
   },
 
   "content_security_policy": {
-    "extension_pages": "script-src 'self' https://www.gstatic.com; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; connect-src 'self' https://hls.irannrtv.live; media-src https://hls.irannrtv.live; worker-src 'self'"
+    "extension_pages": "script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; connect-src 'self' https://hls.irannrtv.live; media-src https://hls.irannrtv.live; worker-src 'self'"
   }
 }

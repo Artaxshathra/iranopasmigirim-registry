@@ -1,3 +1,7 @@
+:root {
+  --accent: var(--accent);
+}
+
 * { margin: 0; padding: 0; box-sizing: border-box; }
 [hidden] { display: none !important; }
 
@@ -93,7 +97,7 @@ html, body {
 
 #volume {
   width: 80px;
-  accent-color: #c41e3a;
+  accent-color: var(--accent);
 }
 
 .spacer { flex: 1; }
@@ -106,7 +110,7 @@ html, body {
 }
 
 .badge.live {
-  background: #c41e3a;
+  background: var(--accent);
   color: #fff;
 }
 
@@ -166,7 +170,7 @@ html, body {
   width: 40px;
   height: 40px;
   border: 3px solid #333;
-  border-top-color: #c41e3a;
+  border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
@@ -255,7 +259,7 @@ body.idle #video {
   width: 60px;
   height: 60px;
   border-radius: 50%;
-  background: #c41e3a;
+  background: var(--accent);
   opacity: 0.85;
   animation: radio-pulse 2s ease-in-out infinite;
 }
@@ -287,22 +291,9 @@ body.idle #video {
 
 body.radio #video { visibility: hidden; }
 body.radio #radio-face { display: flex; }
+/* PiP and Fullscreen target the video surface, which is hidden in radio mode. */
 body.radio #btn-pip,
-body.radio #btn-fs,
-body.radio #btn-cast { display: none; }
-
-/* Cast button glows red when a session is active */
-body.casting #btn-cast {
-  color: #c41e3a;
-}
-
-/* Subtle "· cast" suffix on the LIVE badge when casting */
-body.casting #badge-live::after {
-  content: ' · cast';
-  font-weight: 400;
-  font-size: 9px;
-  opacity: 0.8;
-}
+body.radio #btn-fs { display: none; }
 
 /* --- Keyboard help overlay --- */
 
@@ -341,7 +332,7 @@ body.casting #badge-live::after {
 }
 
 .help-card dt {
-  color: #c41e3a;
+  color: var(--accent);
   font-weight: 600;
   font-family: 'SF Mono', Monaco, Consolas, monospace;
 }

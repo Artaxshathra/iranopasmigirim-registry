@@ -15,7 +15,7 @@
 <body>
 
 <h1>Privacy Policy — INRTV Live Extension</h1>
-<p class="date">Last updated: April 20, 2026</p>
+<p class="date">Last updated: April 25, 2026</p>
 
 <h2>Summary</h2>
 <p>This extension does not collect, store, or transmit any personal or sensitive user data. All processing happens locally within your browser.</p>
@@ -33,9 +33,9 @@
 </ul>
 
 <h2>Permissions</h2>
-<p>The extension requests <strong>no browser permissions</strong> (no <code>storage</code>, no <code>activeTab</code>, no <code>tabs</code>). The only declaration is:</p>
+<p>The extension requests <strong>no browser permissions of any kind</strong> — no <code>storage</code>, no <code>activeTab</code>, no <code>tabs</code>, and no <code>host_permissions</code>. Network access is constrained at the manifest level by a strict Content Security Policy that pins <code>connect-src</code> and <code>media-src</code> to a single origin:</p>
 <ul>
-  <li><strong>Host permission (<code>https://hls.irannrtv.live/*</code>)</strong>: Allows the built-in player to load the live video stream from the INRTV streaming server. This is the only network destination the extension contacts.</li>
+  <li><code>https://hls.irannrtv.live</code> — the INRTV live stream server. The CSP makes this the only destination the extension can reach. No other origin can be contacted, even by bundled third-party code.</li>
 </ul>
 
 <h2>Network Requests</h2>

@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Bootstrap hls.js (SHA-256 verified)
+        run: bash bootstrap.sh
+        working-directory: extensions/inrtv
+      - name: Test
+        run: npm test
+      - name: Build
+        run: npm run build
+      - name: Verify build artifacts
+        run: |
+          test -f extensions/inrtv/dist/inrtv-chrome.zip
+          test -f extensions/inrtv/dist/inrtv-firefox.zip

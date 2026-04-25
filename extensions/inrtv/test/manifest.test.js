@@ -59,19 +59,19 @@ describe('manifest.json', () => {
   it('CSP blocks inline scripts and objects', () => {
     const csp = manifest.content_security_policy?.extension_pages;
     assert.ok(csp, 'CSP must be defined');
-    // script-src must include 'self' (gstatic.com is also allowed for Cast SDK)
-    assert.match(csp, /script-src[^;]*'self'/, 'CSP must restrict script-src to self (plus allowed CDNs)');
+    assert.match(csp, /script-src\s+'self'\s*;/, "CSP script-src must be exactly 'self' (no remote origins — MV3 forbids them)");
     assert.ok(csp.includes("object-src 'none'"), 'CSP must block object-src');
   });
 
-  it('script-src allows gstatic.com for Cast SDK', () => {
+  it("script-src is locked to 'self' only — no remote origins (MV3 rejects them)", () => {
     const csp = manifest.content_security_policy.extension_pages;
-    assert.match(csp, /script-src[^;]*https:\/\/www\.gstatic\.com/,
-      'script-src must allow www.gstatic.com for the Cast Web Sender SDK');
+    const scriptSrc = csp.match(/script-src\s+([^;]+)/)[1].trim();
+    assert.equal(scriptSrc, "'self'",
+      "All scripts must be local — Chrome MV3 rejects any remote script origin");
   });
 
-  it('version is 1.2.0', () => {
-    assert.equal(manifest.version, '1.2.0', 'manifest version must be 1.2.0');
+  it('version is 1.2.2', () => {
+    assert.equal(manifest.version, '1.2.2', 'manifest version must be 1.2.2');
   });
 
   it('CSP includes base-uri and frame-ancestors', () => {

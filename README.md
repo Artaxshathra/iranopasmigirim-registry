@@ -79,14 +79,14 @@ cd extensions/inrtv
 npm test
 ```
 
-Test suites (127 assertions across 7 files):
+Test suites (151 assertions across 7 files):
 
 | Suite | What it checks |
 |-------|----------------|
-| `manifest.test.js` | MV3 structure, permissions, CSP, icons, en/fa locale parity |
-| `html.test.js` | Accessibility, structure, asset references, no inline scripts/styles |
-| `security.test.js` | No innerHTML/eval/http, no inline handlers, URL consistency |
-| `player-logic.test.js` | Strict mode, cleanup, keyboard, radio mode, fullscreen target, a11y attributes |
+| `manifest.test.js` | MV3 structure, zero permissions/host_permissions, CSP pins, icons, en/fa locale parity |
+| `html.test.js` | Accessibility, structure, asset references, no inline scripts/styles, popup/player invariants |
+| `security.test.js` | No innerHTML/eval/http, no inline handlers, stream-URL ↔ CSP consistency, hls.js Apache-2.0 attribution |
+| `player-logic.test.js` | Strict mode, single-`destroy()` teardown, retry-timer cleanup, keyboard, radio mode, fullscreen target, mutually-exclusive overlays |
 | `build.test.js` | Zip contents, license banner, Firefox gecko settings |
 | `bootstrap.test.js` | SHA-256 pinning, script integrity |
 | `reproducibility.test.js` | Byte-identical zip output across builds |

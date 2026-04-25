@@ -1,3 +1,10 @@
+:root {
+  --accent: #c41e3a;
+  --accent-hover: #d42240;
+  --accent-active: #a8182f;
+  --accent-glow: rgba(196, 30, 58, 0.35);
+}
+
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {
@@ -56,7 +63,7 @@ body {
   font-weight: 700;
   border: none;
   border-radius: 10px;
-  background: #c41e3a;
+  background: var(--accent);
   color: #fff;
   cursor: pointer;
   transition: background 0.2s, box-shadow 0.2s;
@@ -72,12 +79,12 @@ body {
 }
 
 .btn-watch:hover {
-  background: #d42240;
-  box-shadow: 0 4px 24px rgba(196, 30, 58, 0.35);
+  background: var(--accent-hover);
+  box-shadow: 0 4px 24px var(--accent-glow);
 }
 
 .btn-watch:active {
-  background: #a8182f;
+  background: var(--accent-active);
   box-shadow: none;
 }
 

@@ -16,11 +16,11 @@ cd extensions/inrtv
 # 1. Download hls.js v1.6.16 (SHA-256 verified)
 ./bootstrap.sh
 
-# 2. Build Firefox extension zip
+# 2. Build Chrome and Firefox extension zips
 ./build.sh
 ```
 
-The Firefox zip is written to `extensions/inrtv/dist/inrtv-firefox.zip`.
+The zips are written to `extensions/inrtv/dist/`.
 
 ### What bootstrap.sh does
 

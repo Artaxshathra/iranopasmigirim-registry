@@ -66,18 +66,14 @@ describe('security: JavaScript source', () => {
 });
 
 describe('security: HTML source', () => {
-  it('has no external <script src="http..."> except the approved Cast SDK CDN', () => {
-    // The Cast Web Sender SDK loads from www.gstatic.com; that is the only
-    // approved external script origin. Anything else is a supply-chain risk.
-    const APPROVED = 'https://www.gstatic.com';
+  it('has no external <script src="http..."> — all scripts must be vendored locally', () => {
+    // Chrome MV3 forbids remote script origins in CSP. The only third-party
+    // JS (hls.js) is vendored under src/lib/ via bootstrap.sh with SHA-256
+    // pinning, so supply-chain integrity is enforced at build time.
     for (const { name, content } of htmlFiles) {
       const externalScripts = content.match(/<script[^>]+src=["']https?:\/\/[^"']+["']/gi) || [];
-      for (const tag of externalScripts) {
-        const srcMatch = tag.match(/src=["'](https?:\/\/[^"']+)["']/i);
-        if (!srcMatch) continue;
-        assert.ok(srcMatch[1].startsWith(APPROVED),
-          `${name} must not load external scripts from unapproved origins: ${srcMatch[1]}`);
-      }
+      assert.equal(externalScripts.length, 0,
+        `${name} must not load external scripts: ${externalScripts.join(', ')}`);
     }
   });
 

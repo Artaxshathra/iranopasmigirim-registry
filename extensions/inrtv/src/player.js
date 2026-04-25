@@ -1,7 +1,6 @@
 'use strict';
 
 const STREAM_URL = 'https://hls.irannrtv.live/hls/stream.m3u8';
-const CAST_APP_ID = 'CC1AD845'; // Default Media Receiver — HLS supported on Chromecast Gen3+
 
 // Tunables — keep behavior together so it's easy to read and adjust.
 const MAX_FATAL_RETRIES = 5;
@@ -17,7 +16,6 @@ const volumeSlider = document.getElementById('volume');
 const btnPip = document.getElementById('btn-pip');
 const btnFs = document.getElementById('btn-fs');
 const btnRadio = document.getElementById('btn-radio');
-const btnCast = document.getElementById('btn-cast');
 const overlayError = document.getElementById('overlay-error');
 const errorMsg = document.getElementById('error-msg');
 const overlayLoading = document.getElementById('overlay-loading');
@@ -32,13 +30,12 @@ let statsInterval = null;
 let retryTimer = null;
 let idleTimer = null;
 let brandingTimer = null;
-let castSession = null; // RemotePlayerController when a Cast session is active
 let fatalRetries = 0;
 
 // --- Init ---
 
 function init() {
-  if (typeof Hls !== 'undefined' && Hls.isSupported()) {
+  if (Hls.isSupported()) {
     loadHls(STREAM_URL);
   } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
     loadNative(STREAM_URL);
@@ -49,85 +46,10 @@ function init() {
   setupControls();
   setupKeyboard();
   setupMessaging();
-  setupCast();
   if (new URLSearchParams(location.search).get('radio') === '1') setRadio(true);
 }
 
-function setupCast() {
-  // — AirPlay path (Safari / WebKit only) —
-  if ('remote' in HTMLVideoElement.prototype) {
-    btnCast.setAttribute('aria-label', 'AirPlay to TV');
-    btnCast.setAttribute('title', 'AirPlay to TV (c)');
-    video.remote.watchAvailability(function (available) {
-      btnCast.hidden = !available;
-    }).catch(function () {
-      // watchAvailability requires HTTPS; in other contexts just stay hidden.
-      btnCast.hidden = true;
-    });
-    btnCast.addEventListener('click', function () {
-      video.remote.prompt().catch(function () {});
-    });
-    video.remote.onconnect = function () {
-      document.body.classList.add('casting');
-      btnCast.setAttribute('aria-label', 'Stop AirPlay');
-      btnCast.setAttribute('title', 'Stop AirPlay (c)');
-    };
-    video.remote.ondisconnect = function () {
-      document.body.classList.remove('casting');
-      btnCast.setAttribute('aria-label', 'AirPlay to TV');
-      btnCast.setAttribute('title', 'AirPlay to TV (c)');
-    };
-    return; // don't fall through to Cast SDK path
-  }
-
-  // — Chromecast path (Chrome via Cast Web Sender SDK) —
-  // The SDK sets window.__onGCastApiAvailable when it finishes loading.
-  window['__onGCastApiAvailable'] = function (isAvailable) {
-    if (!isAvailable) return;
-
-    const castContext = cast.framework.CastContext.getInstance();
-    castContext.setOptions({
-      receiverApplicationId: CAST_APP_ID,
-      autoJoinPolicy: cast.framework.AutoJoinPolicy.ORIGIN_SCOPED,
-    });
-
-    castContext.addEventListener(
-      cast.framework.CastContextEventType.CAST_STATE_CHANGED,
-      function (e) {
-        const st = cast.framework.CastState;
-        btnCast.hidden = (e.castState === st.NO_DEVICES_AVAILABLE);
-        const connected = (e.castState === st.CONNECTED);
-        document.body.classList.toggle('casting', connected);
-        const label = connected ? 'Stop casting' : 'Cast to TV';
-        btnCast.setAttribute('aria-label', label);
-        btnCast.setAttribute('title', label + ' (c)');
-      }
-    );
-
-    btnCast.addEventListener('click', function () {
-      const st = cast.framework.CastState;
-      if (castContext.getCastState() === st.CONNECTED) {
-        castContext.endCurrentSession(true);
-        return;
-      }
-      castContext.requestSession().then(function () {
-        const mediaInfo = new chrome.cast.media.MediaInfo(
-          STREAM_URL, 'application/x-mpegURL'
-        );
-        const request = new chrome.cast.media.LoadRequest(mediaInfo);
-        castContext.getCurrentSession().loadMedia(request).then(function () {
-          const remotePlayer = new cast.framework.RemotePlayer();
-          castSession = new cast.framework.RemotePlayerController(remotePlayer);
-        }).catch(function () {});
-      }).catch(function () {
-        // User dismissed the device picker — no action needed.
-      });
-    });
-  };
-}
-
 function setupMessaging() {
-  if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.onMessage) return;
   chrome.runtime.onMessage.addListener(function (msg, _sender, sendResponse) {
     if (msg && msg.type === 'set-radio') {
       setRadio(!!msg.on);
@@ -298,7 +220,6 @@ function setupKeyboard() {
       case 'f': toggleFullscreen(); break;
       case 'p': togglePip(); break;
       case 'r': toggleRadio(); break;
-      case 'c': if (!btnCast.hidden) btnCast.click(); break;
       case '?': e.preventDefault(); toggleHelp(); break;
       case 'ArrowUp':
         e.preventDefault();
@@ -374,7 +295,6 @@ function isFirefox() {
 // and tabs don't minimize — so skip this path cleanly.
 function setWindowState(state) {
   if (isFirefox()) return;
-  if (typeof chrome === 'undefined' || !chrome.windows) return;
   chrome.windows.getCurrent(function (win) {
     if (!win || chrome.runtime.lastError) return;
     const update = state === 'minimized'
@@ -426,7 +346,18 @@ function wake() {
     if (!video.paused) document.body.classList.add('idle');
   }, IDLE_TIMEOUT_MS);
 }
-playerContainer.addEventListener('mousemove', wake);
+// mousemove fires up to ~60×/s. Coalesce: if we're already awake and a timer
+// is pending, skip — the existing timer will still fire IDLE_TIMEOUT_MS from
+// the LAST move that did reset it. We resync at most every IDLE_TIMEOUT_MS/4
+// so an idle-but-still-moving cursor still re-arms.
+let lastWakeAt = 0;
+playerContainer.addEventListener('mousemove', function () {
+  const now = Date.now();
+  if (idleTimer && document.body.classList.contains('idle') === false &&
+      now - lastWakeAt < IDLE_TIMEOUT_MS / 4) return;
+  lastWakeAt = now;
+  wake();
+});
 playerContainer.addEventListener('mouseleave', function () {
   if (idleTimer) clearTimeout(idleTimer);
   if (!video.paused) document.body.classList.add('idle');
@@ -446,7 +377,6 @@ function destroy() {
   if (idleTimer)     { clearTimeout(idleTimer);      idleTimer = null; }
   if (brandingTimer) { clearTimeout(brandingTimer);  brandingTimer = null; }
   if (statsInterval) { clearInterval(statsInterval); statsInterval = null; }
-  if (castSession)   { castSession.stop(); castSession = null; }
   if (hls)           { hls.destroy(); hls = null; }
 }
 
