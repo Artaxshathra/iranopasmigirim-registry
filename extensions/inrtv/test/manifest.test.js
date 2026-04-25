@@ -59,8 +59,19 @@ describe('manifest.json', () => {
   it('CSP blocks inline scripts and objects', () => {
     const csp = manifest.content_security_policy?.extension_pages;
     assert.ok(csp, 'CSP must be defined');
-    assert.ok(csp.includes("script-src 'self'"), 'CSP must restrict script-src to self');
+    // script-src must include 'self' (gstatic.com is also allowed for Cast SDK)
+    assert.match(csp, /script-src[^;]*'self'/, 'CSP must restrict script-src to self (plus allowed CDNs)');
     assert.ok(csp.includes("object-src 'none'"), 'CSP must block object-src');
+  });
+
+  it('script-src allows gstatic.com for Cast SDK', () => {
+    const csp = manifest.content_security_policy.extension_pages;
+    assert.match(csp, /script-src[^;]*https:\/\/www\.gstatic\.com/,
+      'script-src must allow www.gstatic.com for the Cast Web Sender SDK');
+  });
+
+  it('version is 1.2.0', () => {
+    assert.equal(manifest.version, '1.2.0', 'manifest version must be 1.2.0');
   });
 
   it('CSP includes base-uri and frame-ancestors', () => {

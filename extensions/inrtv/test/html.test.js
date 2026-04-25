@@ -136,12 +136,19 @@ describe('player.html', () => {
     assert.ok(playerBtns.length >= 4, 'must have at least 4 control buttons');
   });
 
-  it('scripts reference only local files', () => {
+  it('scripts reference only local files (Cast SDK CDN is the sole exception)', () => {
+    // The Cast Web Sender SDK must load from gstatic.com (Google's CDN); every
+    // other script must be local. Update this list only when a new intentional
+    // external dependency is added AND the CSP has been updated to match.
+    const ALLOWED_EXTERNAL = ['https://www.gstatic.com'];
     const scripts = attrs(html, 'script');
     for (const s of scripts) {
       const src = attrValue(s, 'src');
-      if (src) {
-        assert.ok(!src.startsWith('http'), `script src must be local: ${src}`);
+      if (src && src.startsWith('http')) {
+        assert.ok(
+          ALLOWED_EXTERNAL.some(origin => src.startsWith(origin)),
+          `script src must be local or an approved CDN origin: ${src}`
+        );
       }
     }
   });
@@ -156,14 +163,36 @@ describe('player.html', () => {
     }
   });
 
-  it('all referenced JS files exist (excluding lib/)', () => {
+  it('all referenced JS files exist (excluding lib/ and approved CDNs)', () => {
     const scripts = attrs(html, 'script');
     for (const s of scripts) {
       const src = attrValue(s, 'src');
-      if (src && !src.startsWith('lib/')) {
+      if (src && !src.startsWith('lib/') && !src.startsWith('http')) {
         assert.ok(fs.existsSync(path.join(SRC, src)), `JS file must exist: ${src}`);
       }
     }
+  });
+
+  it('#btn-cast exists, is hidden by default, and has aria-label', () => {
+    const castBtn = attrs(html, 'button').find(b => attrValue(b, 'id') === 'btn-cast');
+    assert.ok(castBtn, '#btn-cast must exist');
+    assert.ok(castBtn.includes('hidden'), '#btn-cast must be hidden by default');
+    assert.ok(attrValue(castBtn, 'aria-label'), '#btn-cast must have aria-label');
+  });
+
+  it('Cast SDK script tag points to gstatic.com', () => {
+    const scripts = attrs(html, 'script');
+    const sdk = scripts.find(s => {
+      const src = attrValue(s, 'src');
+      return src && src.includes('gstatic.com') && src.includes('cast_sender');
+    });
+    assert.ok(sdk, 'Cast SDK script tag must be present and point to gstatic.com');
+  });
+
+  it('video element has x-webkit-airplay="allow"', () => {
+    const [videoTag] = attrs(html, 'video');
+    assert.match(videoTag, /x-webkit-airplay=["']allow["']/,
+      'video must have x-webkit-airplay="allow" for AirPlay / Remote Playback API');
   });
 
   it('#video and #radio-face share a #video-area wrapper', () => {

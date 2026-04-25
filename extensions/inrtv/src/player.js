@@ -1,6 +1,7 @@
 'use strict';
 
 const STREAM_URL = 'https://hls.irannrtv.live/hls/stream.m3u8';
+const CAST_APP_ID = 'CC1AD845'; // Default Media Receiver — HLS supported on Chromecast Gen3+
 
 // Tunables — keep behavior together so it's easy to read and adjust.
 const MAX_FATAL_RETRIES = 5;
@@ -16,6 +17,7 @@ const volumeSlider = document.getElementById('volume');
 const btnPip = document.getElementById('btn-pip');
 const btnFs = document.getElementById('btn-fs');
 const btnRadio = document.getElementById('btn-radio');
+const btnCast = document.getElementById('btn-cast');
 const overlayError = document.getElementById('overlay-error');
 const errorMsg = document.getElementById('error-msg');
 const overlayLoading = document.getElementById('overlay-loading');
@@ -30,6 +32,7 @@ let statsInterval = null;
 let retryTimer = null;
 let idleTimer = null;
 let brandingTimer = null;
+let castSession = null; // RemotePlayerController when a Cast session is active
 let fatalRetries = 0;
 
 // --- Init ---
@@ -46,7 +49,81 @@ function init() {
   setupControls();
   setupKeyboard();
   setupMessaging();
+  setupCast();
   if (new URLSearchParams(location.search).get('radio') === '1') setRadio(true);
+}
+
+function setupCast() {
+  // — AirPlay path (Safari / WebKit only) —
+  if ('remote' in HTMLVideoElement.prototype) {
+    btnCast.setAttribute('aria-label', 'AirPlay to TV');
+    btnCast.setAttribute('title', 'AirPlay to TV (c)');
+    video.remote.watchAvailability(function (available) {
+      btnCast.hidden = !available;
+    }).catch(function () {
+      // watchAvailability requires HTTPS; in other contexts just stay hidden.
+      btnCast.hidden = true;
+    });
+    btnCast.addEventListener('click', function () {
+      video.remote.prompt().catch(function () {});
+    });
+    video.remote.onconnect = function () {
+      document.body.classList.add('casting');
+      btnCast.setAttribute('aria-label', 'Stop AirPlay');
+      btnCast.setAttribute('title', 'Stop AirPlay (c)');
+    };
+    video.remote.ondisconnect = function () {
+      document.body.classList.remove('casting');
+      btnCast.setAttribute('aria-label', 'AirPlay to TV');
+      btnCast.setAttribute('title', 'AirPlay to TV (c)');
+    };
+    return; // don't fall through to Cast SDK path
+  }
+
+  // — Chromecast path (Chrome via Cast Web Sender SDK) —
+  // The SDK sets window.__onGCastApiAvailable when it finishes loading.
+  window['__onGCastApiAvailable'] = function (isAvailable) {
+    if (!isAvailable) return;
+
+    const castContext = cast.framework.CastContext.getInstance();
+    castContext.setOptions({
+      receiverApplicationId: CAST_APP_ID,
+      autoJoinPolicy: cast.framework.AutoJoinPolicy.ORIGIN_SCOPED,
+    });
+
+    castContext.addEventListener(
+      cast.framework.CastContextEventType.CAST_STATE_CHANGED,
+      function (e) {
+        const st = cast.framework.CastState;
+        btnCast.hidden = (e.castState === st.NO_DEVICES_AVAILABLE);
+        const connected = (e.castState === st.CONNECTED);
+        document.body.classList.toggle('casting', connected);
+        const label = connected ? 'Stop casting' : 'Cast to TV';
+        btnCast.setAttribute('aria-label', label);
+        btnCast.setAttribute('title', label + ' (c)');
+      }
+    );
+
+    btnCast.addEventListener('click', function () {
+      const st = cast.framework.CastState;
+      if (castContext.getCastState() === st.CONNECTED) {
+        castContext.endCurrentSession(true);
+        return;
+      }
+      castContext.requestSession().then(function () {
+        const mediaInfo = new chrome.cast.media.MediaInfo(
+          STREAM_URL, 'application/x-mpegURL'
+        );
+        const request = new chrome.cast.media.LoadRequest(mediaInfo);
+        castContext.getCurrentSession().loadMedia(request).then(function () {
+          const remotePlayer = new cast.framework.RemotePlayer();
+          castSession = new cast.framework.RemotePlayerController(remotePlayer);
+        }).catch(function () {});
+      }).catch(function () {
+        // User dismissed the device picker — no action needed.
+      });
+    });
+  };
 }
 
 function setupMessaging() {
@@ -221,6 +298,7 @@ function setupKeyboard() {
       case 'f': toggleFullscreen(); break;
       case 'p': togglePip(); break;
       case 'r': toggleRadio(); break;
+      case 'c': if (!btnCast.hidden) btnCast.click(); break;
       case '?': e.preventDefault(); toggleHelp(); break;
       case 'ArrowUp':
         e.preventDefault();
@@ -364,11 +442,12 @@ wake();
 // holds a native resource must be released here.
 
 function destroy() {
-  if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
-  if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
-  if (brandingTimer) { clearTimeout(brandingTimer); brandingTimer = null; }
+  if (retryTimer)    { clearTimeout(retryTimer);    retryTimer = null; }
+  if (idleTimer)     { clearTimeout(idleTimer);      idleTimer = null; }
+  if (brandingTimer) { clearTimeout(brandingTimer);  brandingTimer = null; }
   if (statsInterval) { clearInterval(statsInterval); statsInterval = null; }
-  if (hls) { hls.destroy(); hls = null; }
+  if (castSession)   { castSession.stop(); castSession = null; }
+  if (hls)           { hls.destroy(); hls = null; }
 }
 
 window.addEventListener('pagehide', destroy);

@@ -66,11 +66,18 @@ describe('security: JavaScript source', () => {
 });
 
 describe('security: HTML source', () => {
-  it('has no external <script src="http...">', () => {
+  it('has no external <script src="http..."> except the approved Cast SDK CDN', () => {
+    // The Cast Web Sender SDK loads from www.gstatic.com; that is the only
+    // approved external script origin. Anything else is a supply-chain risk.
+    const APPROVED = 'https://www.gstatic.com';
     for (const { name, content } of htmlFiles) {
-      const externalScripts = content.match(/<script[^>]+src=["']https?:\/\//gi);
-      assert.equal(externalScripts, null,
-        `${name} must not load external scripts`);
+      const externalScripts = content.match(/<script[^>]+src=["']https?:\/\/[^"']+["']/gi) || [];
+      for (const tag of externalScripts) {
+        const srcMatch = tag.match(/src=["'](https?:\/\/[^"']+)["']/i);
+        if (!srcMatch) continue;
+        assert.ok(srcMatch[1].startsWith(APPROVED),
+          `${name} must not load external scripts from unapproved origins: ${srcMatch[1]}`);
+      }
     }
   });
 

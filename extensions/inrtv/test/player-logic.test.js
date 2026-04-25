@@ -419,6 +419,72 @@ describe('player.js logic', () => {
       '#radio-face must use inset:0 inside its own positioning context');
   });
 
+  it('cast: CAST_APP_ID constant is defined as Default Media Receiver', () => {
+    assert.match(playerJs, /const\s+CAST_APP_ID\s*=\s*['"]CC1AD845['"]/,
+      'CAST_APP_ID must equal the Default Media Receiver app ID CC1AD845');
+  });
+
+  it('cast: setupCast is defined and called from init', () => {
+    assert.ok(playerJs.includes('function setupCast'), 'setupCast must be defined');
+    const initFn = playerJs.slice(
+      playerJs.indexOf('function init'),
+      playerJs.indexOf('function setupCast')
+    );
+    assert.ok(initFn.includes('setupCast()'), 'init() must call setupCast()');
+  });
+
+  it('cast: AirPlay path uses Remote Playback API feature detection', () => {
+    assert.match(playerJs, /'remote'\s+in\s+HTMLVideoElement\.prototype/,
+      'must check Remote Playback API availability before using it');
+  });
+
+  it('cast: Chromecast path sets CAST_APP_ID and ORIGIN_SCOPED policy', () => {
+    const castFn = playerJs.slice(
+      playerJs.indexOf('function setupCast'),
+      playerJs.indexOf('function setupMessaging')
+    );
+    assert.ok(castFn.includes('CAST_APP_ID'), 'Cast context must use CAST_APP_ID constant');
+    assert.ok(castFn.includes('ORIGIN_SCOPED'), 'Cast context must set autoJoinPolicy to ORIGIN_SCOPED');
+  });
+
+  it('cast: keyboard shortcut c triggers cast button click', () => {
+    const kbBlock = playerJs.slice(
+      playerJs.indexOf('setupKeyboard'),
+      playerJs.indexOf('function showHelp')
+    );
+    assert.match(kbBlock, /case\s+['"]c['"]/,
+      "keyboard handler must include 'c' case");
+    assert.ok(kbBlock.includes('btnCast'), "'c' case must reference btnCast");
+  });
+
+  it('cast: destroy() stops the cast session', () => {
+    const destroyFn = playerJs.slice(
+      playerJs.indexOf('function destroy'),
+      playerJs.indexOf('function destroy') + 500
+    );
+    assert.ok(destroyFn.includes('castSession'), 'destroy() must reference castSession');
+    assert.match(destroyFn, /castSession\.stop\s*\(\s*\)/,
+      'destroy() must call castSession.stop()');
+    assert.match(destroyFn, /castSession\s*=\s*null/,
+      'destroy() must null castSession after stopping');
+  });
+
+  it('cast: btn-cast is hidden in radio mode (CSS)', () => {
+    assert.match(playerCss, /body\.radio[^}]*#btn-cast[^}]*display\s*:\s*none|body\.radio\s+#btn-cast\s*\{[^}]*display\s*:\s*none/,
+      'Cast button must be hidden in radio mode via CSS');
+  });
+
+  it('cast: casting body class is toggled on connect/disconnect', () => {
+    const castFn = playerJs.slice(
+      playerJs.indexOf('function setupCast'),
+      playerJs.indexOf('function setupMessaging')
+    );
+    assert.ok(castFn.includes("classList.add('casting')") || castFn.includes("classList.toggle('casting'"),
+      'must add casting class to body on connect');
+    assert.ok(castFn.includes("classList.remove('casting')") || castFn.includes("classList.toggle('casting'"),
+      'must remove casting class on disconnect');
+  });
+
   it('consolidates native canplay into a single { once: true } listener', () => {
     const nativeBlock = playerJs.slice(
       playerJs.indexOf('function loadNative'),

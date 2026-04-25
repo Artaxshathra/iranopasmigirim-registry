@@ -288,7 +288,21 @@ body.idle #video {
 body.radio #video { visibility: hidden; }
 body.radio #radio-face { display: flex; }
 body.radio #btn-pip,
-body.radio #btn-fs { display: none; }
+body.radio #btn-fs,
+body.radio #btn-cast { display: none; }
+
+/* Cast button glows red when a session is active */
+body.casting #btn-cast {
+  color: #c41e3a;
+}
+
+/* Subtle "· cast" suffix on the LIVE badge when casting */
+body.casting #badge-live::after {
+  content: ' · cast';
+  font-weight: 400;
+  font-size: 9px;
+  opacity: 0.8;
+}
 
 /* --- Keyboard help overlay --- */
 

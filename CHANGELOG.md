@@ -2,6 +2,30 @@
 
 All notable changes to the INRTV Live extension.
 
+## [1.2.0] — 2026-04-25
+
+### Added
+- **Cast / AirPlay to TV** — a Cast button appears in the player controls
+  whenever a compatible device is detected on the network. Clicking it opens
+  the native device-picker and the stream plays on the TV; the browser becomes
+  a remote. On Chrome the Google Cast Web Sender SDK handles Chromecast
+  (Gen3+ with native HLS support via the Default Media Receiver). On Safari
+  the W3C Remote Playback API handles AirPlay to Apple TV, AirPlay-capable
+  smart TVs, and HomePod. On Firefox and when no devices are present the
+  button stays hidden. Keyboard shortcut: `C`.
+- `x-webkit-airplay="allow"` on the `<video>` element, enabling AirPlay via
+  Safari's built-in video controls as a bonus entry point.
+- `CAST_APP_ID` named constant for the Default Media Receiver (`CC1AD845`).
+
+### Security
+- CSP `script-src` relaxed to allow `https://www.gstatic.com` for the Cast
+  Web Sender SDK. All other directives unchanged. No new `host_permissions`.
+
+### Changed
+- Cast session cleaned up in `destroy()` alongside hls, timers, and intervals.
+- Cast button hidden in radio mode (casting a hidden video surface is
+  meaningless).
+
 ## [1.1.1] — 2026-04-25
 
 ### Fixed
