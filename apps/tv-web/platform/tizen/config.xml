@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Tizen TV web-app manifest. The XML namespaces and the tizen:application
+  element are required by the Tizen platform — removing any of them makes
+  the package invalid at install time.
+
+  - id: stable application id, must be globally unique. The 10-char prefix
+        before the dot is the package id; the suffix is the app id within
+        that package. Both are constants for the lifetime of the app — do
+        not regenerate them, or upgrades on the TV become re-installs that
+        wipe user state.
+  - required_version: minimum Tizen TV platform. 6.0 covers 2021+ TVs and
+        is the floor we target.
+  - profile name="tv-samsung": tells the SDK packager to build for TV, not
+        mobile or wearable.
+  - tizen:setting screen-orientation="landscape": TVs are always landscape;
+        prevents the platform from probing rotation events.
+  - access origin="...": the per-app whitelist enforced by the Tizen
+        WebView. Must include every origin the app talks to. Mirrors the
+        connect-src/media-src in the meta CSP.
+  - allow-navigation: prevents the app from navigating away from its own
+        bundle if a stray link were ever clicked.
+-->
+<widget xmlns="http://www.w3.org/ns/widgets"
+        xmlns:tizen="http://tizen.org/ns/widgets"
+        id="http://irannrtv.live/inrtv"
+        version="0.1.0"
+        viewmodes="maximized">
+  <tizen:application id="iNRTVlive0.INRTVLive"
+                     package="iNRTVlive0"
+                     required_version="6.0"/>
+  <name>INRTV Live</name>
+  <description>Iranian National Radio & TV — live stream</description>
+  <author email="contact@irannrtv.live" href="https://irannrtv.live">INRTV</author>
+  <icon src="icon.png"/>
+  <content src="index.html"/>
+  <tizen:profile name="tv-samsung"/>
+  <tizen:setting screen-orientation="landscape"
+                 background-support="disable"
+                 encryption="disable"
+                 install-location="auto"
+                 hwkey-event="enable"/>
+  <tizen:metadata key="http://samsung.com/tv/metadata/use.legacy.event" value="false"/>
+  <access origin="https://hls.irannrtv.live" subdomains="false"/>
+  <allow-navigation>https://hls.irannrtv.live</allow-navigation>
+  <feature name="http://tizen.org/feature/screen.size.normal.1080.1920"/>
+</widget>
