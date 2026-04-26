@@ -4,6 +4,6 @@
   "private": true,
   "scripts": {
     "build": "bash build.sh",
-    "test": "node --test 'test/*.test.js'"
+    "test": "node --test test/*.test.js"
   }
 }

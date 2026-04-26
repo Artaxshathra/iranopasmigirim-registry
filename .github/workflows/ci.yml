@@ -1,26 +1,62 @@
 name: CI
 
+# Run on every push to main and every PR. Cancel an in-flight run when a new
+# commit lands on the same ref so we don't waste minutes on stale work.
 on:
   push:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
   test-and-build:
+    name: Test & build (Node ${{ matrix.node }})
     runs-on: ubuntu-latest
+    # Run on the Node we develop against AND the LTS that ships with most
+    # store-side validation tooling — catches drift in either direction.
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['20', '22']
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: ${{ matrix.node }}
+
+      # SHA-256 verifies the bundled hls.js. Source of truth lives in
+      # extensions/inrtv/bootstrap.sh; the script cd's into its own dir.
       - name: Bootstrap hls.js (SHA-256 verified)
-        run: bash bootstrap.sh
-        working-directory: extensions/inrtv
+        run: bash extensions/inrtv/bootstrap.sh
+
+      # The repo is an npm workspace; `npm test` at the root dispatches into
+      # every workspace that defines a test script.
       - name: Test
         run: npm test
+
       - name: Build
         run: npm run build
+
       - name: Verify build artifacts
         run: |
           test -f extensions/inrtv/dist/inrtv-chrome.zip
           test -f extensions/inrtv/dist/inrtv-firefox.zip
+
+      # Upload zips for the matrix leg that matches our release Node so a
+      # maintainer can grab a CI-built artifact without rebuilding locally.
+      - name: Upload extension zips
+        if: matrix.node == '22'
+        uses: actions/upload-artifact@v4
+        with:
+          name: inrtv-extension-zips
+          path: extensions/inrtv/dist/*.zip
+          if-no-files-found: error
+          retention-days: 14
