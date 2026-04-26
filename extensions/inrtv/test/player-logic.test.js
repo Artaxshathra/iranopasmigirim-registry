@@ -443,4 +443,70 @@ describe('player.js logic', () => {
     assert.equal(canplayMatches && canplayMatches.length, 1,
       'loadNative must have exactly one canplay listener');
   });
+
+  it('radio mode: setRadio keeps aria-pressed in sync with state', () => {
+    // Bug fix: btn-radio ships aria-pressed="false" in the HTML; without this
+    // sync, screen readers report stale state every time you toggle radio.
+    const fn = playerJs.slice(
+      playerJs.indexOf('function setRadio'),
+      playerJs.indexOf('function toggleRadio')
+    );
+    assert.match(fn, /setAttribute\(\s*['"]aria-pressed['"]\s*,\s*on\s*\?\s*['"]true['"]\s*:\s*['"]false['"]\s*\)/,
+      "setRadio must update aria-pressed in lockstep with the on/off state");
+  });
+
+  it('keyboard handler ignores events whose target is a native control', () => {
+    // Bug fix: ArrowUp/Down on the focused volume slider previously fired
+    // both the slider's native handler AND ours, so volume jumped by ~0.15
+    // instead of 0.1. Same risk for Space on a focused button.
+    const kbBlock = playerJs.slice(
+      playerJs.indexOf('setupKeyboard'),
+      playerJs.indexOf('function showHelp')
+    );
+    assert.match(kbBlock, /tagName\s*===\s*['"]INPUT['"]/, 'must skip when focus is on INPUT');
+    assert.match(kbBlock, /tagName\s*===\s*['"]BUTTON['"]/, 'must skip when focus is on BUTTON');
+  });
+
+  it('messaging: rejects messages from other extensions / external senders', () => {
+    // Defense in depth — even though no externally_connectable surface exists
+    // today, the listener must check sender.id against chrome.runtime.id so a
+    // future surface change can't silently flip our mode.
+    const block = playerJs.slice(
+      playerJs.indexOf('function setupMessaging'),
+      playerJs.indexOf('function setupMessaging') + 600
+    );
+    assert.match(block, /sender\.id\s*!==\s*chrome\.runtime\.id/,
+      'onMessage listener must verify sender.id matches chrome.runtime.id');
+  });
+
+  it('caps MEDIA_ERROR recovery attempts (no infinite recoverMediaError loop)', () => {
+    // Bug fix: previously hls.recoverMediaError() ran on every fatal media
+    // error with no counter — a wedged decoder would leave the user staring
+    // at "Recovering..." forever.
+    assert.ok(playerJs.includes('mediaRetries'),
+      'must define a mediaRetries counter');
+    assert.match(playerJs, /mediaRetries\s*>=\s*MAX_FATAL_RETRIES/,
+      'MEDIA_ERROR branch must check the cap before recoverMediaError');
+    assert.match(playerJs, /mediaRetries\s*=\s*0/,
+      'mediaRetries must reset on FRAG_LOADED');
+  });
+
+  it('native path: guards against a stuck spinner with a timeout', () => {
+    // Safari edge case: neither canplay nor error fires when the manifest
+    // hangs. Without a timeout the user sees the spinner forever.
+    const nativeBlock = playerJs.slice(
+      playerJs.indexOf('function loadNative'),
+      playerJs.indexOf('function startStats')
+    );
+    assert.match(nativeBlock, /setTimeout/, 'loadNative must schedule a stuck-spinner timeout');
+    assert.match(nativeBlock, /readyState\s*<\s*2/,
+      'timeout must check readyState before showing the error');
+    // And destroy() must clean it up, same as every other timer.
+    const destroyFn = playerJs.slice(
+      playerJs.indexOf('function destroy'),
+      playerJs.indexOf('function destroy') + 600
+    );
+    assert.match(destroyFn, /clearTimeout\(\s*nativeTimeout\s*\)/,
+      'destroy() must clearTimeout(nativeTimeout)');
+  });
 });

@@ -70,8 +70,8 @@ describe('manifest.json', () => {
       "All scripts must be local — Chrome MV3 rejects any remote script origin");
   });
 
-  it('version is 1.2.2', () => {
-    assert.equal(manifest.version, '1.2.2', 'manifest version must be 1.2.2');
+  it('version is 1.2.3', () => {
+    assert.equal(manifest.version, '1.2.3', 'manifest version must be 1.2.3');
   });
 
   it('CSP includes base-uri and frame-ancestors', () => {
@@ -99,6 +99,20 @@ describe('manifest.json', () => {
     const csp = manifest.content_security_policy.extension_pages;
     assert.ok(/worker-src\s+'self'(?![^;]*blob:)/.test(csp),
       "CSP worker-src must be 'self' only — MV3 rejects blob: here; hls.js runs on main thread");
+  });
+
+  it("CSP has default-src 'none' (deny-by-default for any future fetch type)", () => {
+    const csp = manifest.content_security_policy.extension_pages;
+    assert.ok(/default-src\s+'none'/.test(csp),
+      "CSP must declare default-src 'none' so unmentioned directives deny by default");
+  });
+
+  it('CSP locks style/img/font/form-action to safe defaults', () => {
+    const csp = manifest.content_security_policy.extension_pages;
+    assert.ok(/style-src\s+'self'/.test(csp), "CSP style-src must be 'self'");
+    assert.ok(/img-src\s+'self'\s+data:/.test(csp), "CSP img-src must be 'self' data:");
+    assert.ok(/font-src\s+'self'/.test(csp), "CSP font-src must be 'self'");
+    assert.ok(/form-action\s+'none'/.test(csp), "CSP form-action must be 'none'");
   });
 
   it('all declared icon files exist', () => {

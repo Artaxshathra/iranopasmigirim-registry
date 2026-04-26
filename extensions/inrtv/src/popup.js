@@ -57,7 +57,9 @@ document.getElementById('btn-listen').addEventListener('click', function () {
   openOrSwitch(true);
 });
 
+// Open the site link in a new tab via chrome.tabs so the popup closes cleanly.
+// URL lives once in popup.html (the href) — keep them from drifting.
 document.getElementById('link-site').addEventListener('click', function (e) {
   e.preventDefault();
-  chrome.tabs.create({ url: 'https://iranopasmigirim.com/en/iran-national-revolution-tv' });
+  chrome.tabs.create({ url: e.currentTarget.href });
 });

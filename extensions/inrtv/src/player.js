@@ -30,7 +30,9 @@ let statsInterval = null;
 let retryTimer = null;
 let idleTimer = null;
 let brandingTimer = null;
+let nativeTimeout = null;
 let fatalRetries = 0;
+let mediaRetries = 0;
 
 // --- Init ---
 
@@ -50,7 +52,11 @@ function init() {
 }
 
 function setupMessaging() {
-  chrome.runtime.onMessage.addListener(function (msg, _sender, sendResponse) {
+  chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
+    // Only accept messages from this same extension. Defends against any future
+    // surface change (externally_connectable, content scripts, etc.) silently
+    // letting third parties flip our mode.
+    if (!sender || sender.id !== chrome.runtime.id) return;
     if (msg && msg.type === 'set-radio') {
       setRadio(!!msg.on);
       sendResponse({ ok: true });
@@ -108,6 +114,15 @@ function loadHls(url) {
         }, RETRY_DELAY_MS);
         break;
       case Hls.ErrorTypes.MEDIA_ERROR:
+        // Cap recovery attempts — without it, a wedged decoder loops forever
+        // and the user sees "Recovering..." with no exit. Counter resets on
+        // FRAG_LOADED (same as fatalRetries) so a transient glitch doesn't
+        // poison the budget for the rest of the session.
+        if (mediaRetries >= MAX_FATAL_RETRIES) {
+          showError('Playback failed. Try refreshing (F5).');
+          return;
+        }
+        mediaRetries++;
         showError('Media error. Recovering...');
         hls.recoverMediaError();
         break;
@@ -121,19 +136,33 @@ function loadHls(url) {
     hideError();
     hideLoading();
     fatalRetries = 0;
+    mediaRetries = 0;
   });
 }
 
 function loadNative(url) {
   video.src = url;
+  // Safari edge case: neither 'canplay' nor 'error' fires when the manifest
+  // hangs (DNS stall, server accepts then never responds). Without this guard
+  // the spinner sits forever. 20s is generous for a live HLS warmup.
+  const NATIVE_TIMEOUT_MS = 20000;
+  function clearNativeTimeout() {
+    if (nativeTimeout) { clearTimeout(nativeTimeout); nativeTimeout = null; }
+  }
+  nativeTimeout = setTimeout(function () {
+    nativeTimeout = null;
+    if (video.readyState < 2) showError('Stream did not start. Try refreshing (F5).');
+  }, NATIVE_TIMEOUT_MS);
   video.addEventListener('canplay', function () {
+    clearNativeTimeout();
     hideError();
     hideLoading();
     video.play().catch(showPlayPrompt);
   }, { once: true });
   video.addEventListener('error', function () {
+    clearNativeTimeout();
     showError('Playback error. Check the stream URL.');
-  });
+  }, { once: true });
 }
 
 // --- Stats ---
@@ -214,6 +243,12 @@ function setupKeyboard() {
 
     if (!overlayHelp.hidden && e.key !== '?') { hideHelp(); return; }
 
+    // Don't hijack keys when focus is on a native control — the volume slider
+    // already handles ArrowUp/Down, buttons already handle Space/Enter, etc.
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'BUTTON' ||
+              t.tagName === 'SELECT' || t.tagName === 'TEXTAREA')) return;
+
     switch (e.key) {
       case ' ': case 'k': e.preventDefault(); togglePlay(); break;
       case 'm': toggleMute(); break;
@@ -275,6 +310,7 @@ function toggleFullscreen() {
 function setRadio(on) {
   document.body.classList.toggle('radio', on);
   btnRadio.setAttribute('data-state', on ? 'on' : 'off');
+  btnRadio.setAttribute('aria-pressed', on ? 'true' : 'false');
   const nextAction = on ? 'Switch to video' : 'Switch to radio';
   btnRadio.setAttribute('aria-label', nextAction);
   btnRadio.setAttribute('title', nextAction + ' (r)');
@@ -373,9 +409,10 @@ wake();
 // holds a native resource must be released here.
 
 function destroy() {
-  if (retryTimer)    { clearTimeout(retryTimer);    retryTimer = null; }
+  if (retryTimer)    { clearTimeout(retryTimer);     retryTimer = null; }
   if (idleTimer)     { clearTimeout(idleTimer);      idleTimer = null; }
   if (brandingTimer) { clearTimeout(brandingTimer);  brandingTimer = null; }
+  if (nativeTimeout) { clearTimeout(nativeTimeout);  nativeTimeout = null; }
   if (statsInterval) { clearInterval(statsInterval); statsInterval = null; }
   if (hls)           { hls.destroy(); hls = null; }
 }
