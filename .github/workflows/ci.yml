@@ -49,14 +49,3 @@ jobs:
         run: |
           test -f extensions/inrtv/dist/inrtv-chrome.zip
           test -f extensions/inrtv/dist/inrtv-firefox.zip
-
-      # Upload zips for the matrix leg that matches our release Node so a
-      # maintainer can grab a CI-built artifact without rebuilding locally.
-      - name: Upload extension zips
-        if: matrix.node == '22'
-        uses: actions/upload-artifact@v4
-        with:
-          name: inrtv-extension-zips
-          path: extensions/inrtv/dist/*.zip
-          if-no-files-found: error
-          retention-days: 14
