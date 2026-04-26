@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "workspaces": [
-    "extensions/*"
+    "extensions/*",
+    "apps/*"
   ],
   "scripts": {
     "test": "npm test --workspaces --if-present",

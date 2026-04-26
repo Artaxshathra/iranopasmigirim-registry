@@ -1,0 +1,9 @@
+{
+  "name": "inrtv-tv-web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "bash build.sh",
+    "test": "node --test test/*.test.js"
+  }
+}
