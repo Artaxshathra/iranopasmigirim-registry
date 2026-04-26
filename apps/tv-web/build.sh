@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build all TV-app packages from src/.
+# Build all TV-app packages from this project root.
 #
 # Outputs:
 #   dist/inrtv-tizen.wgt   — Samsung TV widget package (unsigned)
@@ -12,7 +12,6 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-SRC="$ROOT/src"
 DIST="$ROOT/dist"
 STAGE="$DIST/_stage"
 
@@ -20,10 +19,10 @@ STAGE="$DIST/_stage"
 export SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(git -C "$ROOT" log -1 --format=%ct 2>/dev/null || echo 0)}"
 
 echo "==> Verifying inputs"
-test -f "$SRC/index.html"           || { echo "missing src/index.html"; exit 1; }
-test -f "$SRC/lib/hls.min.js"       || { echo "missing src/lib/hls.min.js (run bootstrap.sh)"; exit 1; }
-test -f "$SRC/icon.png"             || node "$ROOT/platform/tizen/make-icon.js"
-test -f "$ROOT/platform/tizen/config.xml" || { echo "missing platform/tizen/config.xml"; exit 1; }
+test -f "$ROOT/index.html"     || { echo "missing index.html"; exit 1; }
+test -f "$ROOT/lib/hls.min.js" || { echo "missing lib/hls.min.js (run bootstrap.sh)"; exit 1; }
+test -f "$ROOT/icon.png"       || node "$ROOT/make-icon.js"
+test -f "$ROOT/config.xml"     || { echo "missing config.xml"; exit 1; }
 
 echo "==> Cleaning $DIST"
 rm -rf "$DIST"
@@ -31,9 +30,15 @@ mkdir -p "$STAGE/tizen"
 
 echo "==> Staging Tizen package"
 # config.xml MUST sit at the root of the zip — Tizen will reject the .wgt
-# otherwise. The web assets keep their src/ structure relative to root.
-cp "$ROOT/platform/tizen/config.xml" "$STAGE/tizen/config.xml"
-cp -r "$SRC"/* "$STAGE/tizen/"
+# otherwise. Copy only the files the runtime needs, never node_modules,
+# tests, or build scripts.
+cp "$ROOT/config.xml"   "$STAGE/tizen/"
+cp "$ROOT/index.html"   "$STAGE/tizen/"
+cp "$ROOT/player.js"    "$STAGE/tizen/"
+cp "$ROOT/player.css"   "$STAGE/tizen/"
+cp "$ROOT/icon.png"     "$STAGE/tizen/"
+cp -r "$ROOT/lib"       "$STAGE/tizen/"
+cp -r "$ROOT/_locales"  "$STAGE/tizen/"
 
 echo "==> Packing inrtv-tizen.wgt"
 # -X strips extra file attributes that vary across systems (uid/gid).

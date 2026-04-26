@@ -5,14 +5,15 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const SRC = path.join(__dirname, '..', 'src');
-function readSrc(ext) {
-  return fs.readdirSync(SRC)
-    .filter(f => f.endsWith(ext))
-    .map(f => ({ name: f, content: fs.readFileSync(path.join(SRC, f), 'utf8') }));
-}
-
-const jsFiles = readSrc('.js');
+const SRC = path.join(__dirname, '..');
+// Runtime files that ship in the .wgt — explicitly listed so build-time
+// scripts (make-icon.js, etc.) at the project root are not mistaken for
+// app code and audited under the same rules.
+const RUNTIME_JS = ['player.js'];
+const jsFiles = RUNTIME_JS.map(f => ({
+  name: f,
+  content: fs.readFileSync(path.join(SRC, f), 'utf8'),
+}));
 
 describe('tv-web security: JavaScript source', () => {
   it('never uses innerHTML', () => {
@@ -75,7 +76,7 @@ describe('tv-web security: bundled hls.js', () => {
     const tvHash = crypto.createHash('sha256').update(tv).digest('hex');
     const extHash = crypto.createHash('sha256').update(ext).digest('hex');
     assert.equal(tvHash, extHash,
-      'apps/tv-web/src/lib/hls.min.js must be byte-identical to extensions/inrtv/src/lib/hls.min.js');
+      'apps/tv-web/lib/hls.min.js must be byte-identical to extensions/inrtv/src/lib/hls.min.js');
   });
 
   it('bootstrap.sh pins the same hls.js version as the extension', () => {

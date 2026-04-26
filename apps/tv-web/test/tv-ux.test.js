@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const SRC = path.join(__dirname, '..', 'src');
+const SRC = path.join(__dirname, '..');
 const playerJs = fs.readFileSync(path.join(SRC, 'player.js'), 'utf8');
 const indexHtml = fs.readFileSync(path.join(SRC, 'index.html'), 'utf8');
 

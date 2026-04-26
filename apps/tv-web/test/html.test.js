@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const SRC = path.join(__dirname, '..', 'src');
+const SRC = path.join(__dirname, '..');
 const html = fs.readFileSync(path.join(SRC, 'index.html'), 'utf8');
 
 describe('tv-web index.html', () => {

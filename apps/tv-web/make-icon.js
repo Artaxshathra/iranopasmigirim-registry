@@ -70,6 +70,6 @@ const png = Buffer.concat([
   chunk('IEND', Buffer.alloc(0)),
 ]);
 
-const out = path.join(__dirname, '..', '..', 'src', 'icon.png');
+const out = path.join(__dirname, 'icon.png');
 fs.writeFileSync(out, png);
 console.log(`wrote ${out} (${png.length} bytes)`);

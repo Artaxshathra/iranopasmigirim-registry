@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const LOCALES = path.join(__dirname, '..', 'src', '_locales');
+const LOCALES = path.join(__dirname, '..', '_locales');
 
 describe('tv-web locales', () => {
   it('en and fa exist with identical key sets and non-empty messages', () => {

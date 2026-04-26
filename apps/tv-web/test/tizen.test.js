@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const ROOT = path.join(__dirname, '..');
-const CONFIG = path.join(ROOT, 'platform', 'tizen', 'config.xml');
+const CONFIG = path.join(ROOT, 'config.xml');
 const xml = fs.readFileSync(CONFIG, 'utf8');
 
 describe('tv-web Tizen: config.xml', () => {
@@ -43,7 +43,7 @@ describe('tv-web Tizen: config.xml', () => {
   it('whitelists exactly the stream origin (matches CSP)', () => {
     // Must agree with the meta CSP: any drift means the WebView allows
     // origins the page would block, or vice versa.
-    const html = fs.readFileSync(path.join(ROOT, 'src', 'index.html'), 'utf8');
+    const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
     const cspMatch = html.match(/Content-Security-Policy["'][^>]+content=("([^"]+)"|'([^']+)')/);
     const csp = cspMatch[2] || cspMatch[3];
     const cspOrigin = csp.match(/connect-src[^;]*?(https:\/\/[^\s;]+)/)[1];
@@ -54,8 +54,8 @@ describe('tv-web Tizen: config.xml', () => {
     assert.match(xml, /<content\s+src="index\.html"/);
     const iconMatch = xml.match(/<icon\s+src="([^"]+)"/);
     assert.ok(iconMatch);
-    assert.ok(fs.existsSync(path.join(ROOT, 'src', iconMatch[1])),
-      `icon "${iconMatch[1]}" must exist in src/`);
+    assert.ok(fs.existsSync(path.join(ROOT, iconMatch[1])),
+      `icon "${iconMatch[1]}" must exist at project root`);
   });
 });
 
