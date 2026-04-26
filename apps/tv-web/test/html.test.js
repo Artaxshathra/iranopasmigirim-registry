@@ -55,7 +55,11 @@ describe('tv-web index.html', () => {
     assert.ok(!csp.includes('unsafe-eval'));
     assert.match(csp, /connect-src[^;]*https:\/\/hls\.irannrtv\.live/);
     assert.match(csp, /media-src[^;]*https:\/\/hls\.irannrtv\.live/);
-    assert.match(csp, /frame-ancestors\s+'none'/);
+    // hls.js feeds the <video> via a MediaSource blob: URL — without this
+    // the stream is silently blocked and the player just shows black.
+    assert.match(csp, /media-src[^;]*\bblob:/);
+    // frame-ancestors intentionally absent: ignored in <meta>, browsers warn.
+    assert.ok(!/frame-ancestors/.test(csp), 'frame-ancestors only works as HTTP header');
   });
 
   it('stream URL in CSP matches STREAM_URL in player.js', () => {
