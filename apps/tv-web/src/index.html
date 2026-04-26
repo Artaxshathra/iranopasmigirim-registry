@@ -28,6 +28,17 @@
       <div class="spinner"></div>
       <p class="loading-caption">Connecting…</p>
     </div>
+
+    <nav id="control-bar" hidden aria-label="Player controls">
+      <button id="btn-play" type="button" class="ctrl" data-action="play" aria-label="Play or pause">
+        <span class="ctrl-icon" aria-hidden="true">▶</span>
+        <span class="ctrl-label">Play</span>
+      </button>
+      <button id="btn-audio" type="button" class="ctrl" data-action="audio" aria-pressed="false" aria-label="Toggle audio-only mode">
+        <span class="ctrl-icon" aria-hidden="true">♪</span>
+        <span class="ctrl-label">Audio only</span>
+      </button>
+    </nav>
   </div>
 
   <script src="lib/hls.min.js"></script>

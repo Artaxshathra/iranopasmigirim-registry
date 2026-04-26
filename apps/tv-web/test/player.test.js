@@ -87,10 +87,12 @@ describe('tv-web player.js', () => {
     assert.ok(playerJs.includes('toggleAudioOnly'));
     assert.ok(playerJs.includes('setAudioOnly'));
     assert.match(playerJs, /classList\.toggle\(\s*['"]audio-only['"]/);
-    const kb = playerJs.slice(playerJs.indexOf('setupKeyboard'),
-                              playerJs.indexOf('function setupBrandingFade'));
-    assert.match(kb, /case\s+['"]a['"]\s*:\s*toggleAudioOnly/,
-      "keyboard 'a' must toggle audio-only");
+    // Step 2 routes keys through dispatchAction. The 'a' case must dispatch
+    // the 'audio' action (which calls toggleAudioOnly).
+    const kb = playerJs.slice(playerJs.indexOf('function setupKeyboard'),
+                              playerJs.indexOf('// --- Platform integration ---'));
+    assert.match(kb, /case\s+['"]a['"]\s*:[\s\S]*?dispatchAction\(\s*['"]audio['"]/,
+      "keyboard 'a' must dispatch the audio action");
   });
 
   it('volume changes are clamped to [0, 1] and unmute on adjustment', () => {

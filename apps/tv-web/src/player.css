@@ -153,3 +153,70 @@ html, body {
 
 body.audio-only #video { visibility: hidden; }
 body.audio-only #audio-face { display: flex; }
+
+/* --- Control bar (D-pad navigable) ---
+   Hidden by default; shown on remote activity, auto-hidden after idle.
+   Sized for a 10-foot view: large hit targets, high-contrast focus ring. */
+
+#control-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  justify-content: center;
+  gap: 24px;
+  padding: 32px 48px 48px;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.85), rgba(0, 0, 0, 0));
+  z-index: 8;
+  opacity: 1;
+  transition: opacity 0.25s ease;
+}
+
+#control-bar[hidden] {
+  /* Override [hidden]{display:none} so the fade-out transition can play.
+     JS toggles the .hiding class first, then sets [hidden] after the
+     transition ends. */
+  display: flex !important;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.ctrl {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 220px;
+  padding: 18px 28px;
+  font: inherit;
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--fg);
+  background: rgba(30, 30, 30, 0.85);
+  border: 3px solid transparent;
+  border-radius: 12px;
+  cursor: pointer;
+  /* Disable native focus ring — we draw our own, sized for a 10-foot view. */
+  outline: none;
+}
+
+.ctrl:focus,
+.ctrl:focus-visible {
+  border-color: var(--accent);
+  background: rgba(60, 20, 28, 0.95);
+  box-shadow: 0 0 0 4px rgba(196, 30, 58, 0.35);
+}
+
+.ctrl[aria-pressed="true"] {
+  background: var(--accent);
+  color: #fff;
+}
+
+.ctrl-icon {
+  font-size: 28px;
+  line-height: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #control-bar { transition: none; }
+}
