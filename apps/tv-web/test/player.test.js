@@ -77,10 +77,13 @@ describe('tv-web player.js', () => {
   });
 
   it('retry callback bails when hls has been destroyed', () => {
-    const errBlock = playerJs.slice(playerJs.indexOf('NETWORK_ERROR'),
-                                    playerJs.indexOf('MEDIA_ERROR'));
-    assert.match(errBlock, /retryTimer\s*=\s*null/, 'callback must clear its own ref');
-    assert.match(errBlock, /if\s*\(\s*!hls\s*\)\s*return/);
+    // Retry scheduling lives in scheduleRetry() — both NETWORK_ERROR and
+    // the cold-retry path go through it. The callback must (a) clear its
+    // own timer ref and (b) bail if destroy() ran in the meantime.
+    const fn = playerJs.slice(playerJs.indexOf('function scheduleRetry'),
+                              playerJs.indexOf('function scheduleRetry') + 400);
+    assert.match(fn, /retryTimer\s*=\s*null/, 'callback must clear its own ref');
+    assert.match(fn, /if\s*\(\s*!hls\s*\)\s*return/);
   });
 
   it('audio-only mode: defined and bound to a keyboard key', () => {

@@ -16,11 +16,26 @@
 
       <div id="audio-face" aria-hidden="true">
         <div class="audio-pulse"></div>
-        <p class="audio-label">Audio only</p>
-        <p class="audio-sub">INRTV · Live</p>
+        <p class="audio-label" data-i18n="audioOnlyLabel">Audio only</p>
+        <p class="audio-sub" data-i18n="audioOnlySub">INRTV · Live</p>
+      </div>
+
+      <div id="live-badge" class="live-badge" aria-hidden="true">
+        <span class="live-dot"></span>
+        <span class="live-text" data-i18n="liveBadge">LIVE</span>
+        <span class="live-channel">INRTV</span>
       </div>
 
       <div id="branding" class="branding" aria-hidden="true">INRTV</div>
+    </div>
+
+    <!-- HTML splash: bridges the gap from Tizen's platform splash (which
+         disappears as soon as the WebView paints) to the first decoded
+         video frame. Removed by player.js the moment 'playing' fires. -->
+    <div id="splash" aria-hidden="true">
+      <img class="splash-mark" src="icon.png" alt="">
+      <p class="splash-name">INRTV</p>
+      <p class="splash-sub" data-i18n="splashSub">Live</p>
     </div>
 
     <div id="overlay-error" hidden role="status" aria-live="polite">

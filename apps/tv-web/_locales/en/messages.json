@@ -1,4 +1,19 @@
 {
   "appName":         { "message": "INRTV Live" },
-  "appDescription":  { "message": "Watch Iran National Revolution TV live on your TV." }
+  "appDescription":  { "message": "Watch Iran National Revolution TV live on your TV." },
+  "splashSub":       { "message": "Live" },
+  "liveBadge":       { "message": "LIVE" },
+  "audioOnlyLabel":  { "message": "Audio only" },
+  "audioOnlySub":    { "message": "INRTV · Live" },
+  "btnPlay":         { "message": "Play" },
+  "btnPause":        { "message": "Pause" },
+  "btnAudioOnly":    { "message": "Audio only" },
+  "errNoHls":        { "message": "This TV does not support HLS playback." },
+  "errNetwork":      { "message": "Reconnecting…" },
+  "errRecovering":   { "message": "Recovering…" },
+  "errMedia":        { "message": "Playback failed. Please restart the app." },
+  "errFatal":        { "message": "Playback failed. Please restart the app." },
+  "errOffline":      { "message": "Stream is offline. Retrying…" },
+  "errStuck":        { "message": "Stream did not start. Please restart the app." },
+  "errPlayback":     { "message": "Playback error. Please restart the app." }
 }

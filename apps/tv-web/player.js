@@ -15,46 +15,132 @@
 const STREAM_URL = 'https://hls.irannrtv.live/hls/stream.m3u8';
 
 // Tunables — keep behavior together so it's easy to read and adjust.
-const MAX_FATAL_RETRIES = 5;
+const MAX_FATAL_RETRIES = 8;
 const RETRY_DELAY_MS = 2000;
+// After exhausting fast retries, slow-poll the origin so a viewer who left
+// the TV on overnight wakes up to a reconnected stream. Capped to spare the
+// origin from a fleet of TVs hammering it during an outage.
+const COLD_RETRY_DELAY_MS = 30000;
 const BRANDING_FADE_DELAY_MS = 5000;
 const NATIVE_TIMEOUT_MS = 20000;
 // Idle-hide for the control bar. Longer than a mouse cursor would warrant
 // because remote presses are slower and viewers expect the chrome to linger.
 const IDLE_HIDE_MS = 8000;
+// Splash stays on screen until first frame, but cap the wait so a broken
+// stream still surfaces the loading/error overlay instead of black.
+const SPLASH_MAX_MS = 8000;
+// LIVE badge fades to dim once the viewer has settled in (mirrors branding).
+const LIVE_BADGE_DIM_DELAY_MS = 12000;
 
 const video = document.getElementById('video');
 const overlayError = document.getElementById('overlay-error');
 const errorMsg = document.getElementById('error-msg');
 const overlayLoading = document.getElementById('overlay-loading');
 const brandingEl = document.getElementById('branding');
+const liveBadge = document.getElementById('live-badge');
+const splashEl = document.getElementById('splash');
 const controlBar = document.getElementById('control-bar');
 const btnPlay = document.getElementById('btn-play');
 const btnAudio = document.getElementById('btn-audio');
 
 let hls = null;
 let retryTimer = null;
+let coldRetryTimer = null;
 let brandingTimer = null;
+let liveDimTimer = null;
+let splashTimer = null;
 let nativeTimeout = null;
 let idleTimer = null;
 let fatalRetries = 0;
 let mediaRetries = 0;
+let coldRetrying = false;
+
+// --- i18n ---
+//
+// Tiny localization layer: load _locales/<lang>/messages.json (the same
+// schema we use in the extension), apply translations to every element with
+// a data-i18n key, and set <html lang/dir> so RTL flips correctly. Falls
+// back to English silently — the page is fully usable without translations.
+
+const I18N = {
+  current: 'en',
+  messages: {},
+};
+
+function pickLocale() {
+  // Prefer Tizen's per-app preference when available (set in TV settings),
+  // then the browser's navigator.language. Strip region (fa-IR → fa).
+  let lang = 'en';
+  try {
+    if (typeof tizen !== 'undefined' && tizen.systeminfo) {
+      // Synchronous locale read isn't exposed; fall back to navigator.
+    }
+  } catch (_) { /* not on Tizen */ }
+  const nav = (navigator.language || 'en').toLowerCase();
+  if (nav.startsWith('fa')) lang = 'fa';
+  return lang;
+}
+
+function applyTranslations() {
+  const els = document.querySelectorAll('[data-i18n]');
+  for (const el of els) {
+    const key = el.getAttribute('data-i18n');
+    const msg = I18N.messages[key];
+    if (msg && msg.message) el.textContent = msg.message;
+  }
+}
+
+function loadLocale(lang, done) {
+  // Same-origin XHR: avoids the fetch() polyfill question on older Tizen
+  // firmware and keeps the CSP surface to script-src 'self' only.
+  const xhr = new XMLHttpRequest();
+  xhr.open('GET', '_locales/' + lang + '/messages.json', true);
+  xhr.onload = function () {
+    if (xhr.status >= 200 && xhr.status < 300) {
+      try { I18N.messages = JSON.parse(xhr.responseText); } catch (_) {}
+    }
+    done();
+  };
+  xhr.onerror = done;
+  xhr.send();
+}
+
+function setupI18n(done) {
+  const lang = pickLocale();
+  I18N.current = lang;
+  document.documentElement.setAttribute('lang', lang);
+  if (lang === 'fa') document.documentElement.setAttribute('dir', 'rtl');
+  loadLocale(lang, function () {
+    applyTranslations();
+    done();
+  });
+}
 
 // --- Init ---
 
 function init() {
-  if (typeof Hls !== 'undefined' && Hls.isSupported()) {
-    loadHls(STREAM_URL);
-  } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-    loadNative(STREAM_URL);
-  } else {
-    showError('This TV does not support HLS playback.');
-    return;
-  }
-  setupKeyboard();
-  setupControlBar();
-  setupBrandingFade();
-  registerPlatformKeys();
+  setupI18n(function () {
+    setupSplash();
+    setupBadge();
+    if (typeof Hls !== 'undefined' && Hls.isSupported()) {
+      loadHls(STREAM_URL);
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      loadNative(STREAM_URL);
+    } else {
+      hideSplash();
+      showError(t('errNoHls', 'This TV does not support HLS playback.'));
+      return;
+    }
+    setupKeyboard();
+    setupControlBar();
+    setupBrandingFade();
+    registerPlatformKeys();
+  });
+}
+
+function t(key, fallback) {
+  const m = I18N.messages[key];
+  return (m && m.message) || fallback;
 }
 
 // --- Stream loading ---
@@ -91,17 +177,12 @@ function loadHls(url) {
     switch (data.type) {
       case Hls.ErrorTypes.NETWORK_ERROR:
         if (fatalRetries >= MAX_FATAL_RETRIES) {
-          showError('Network unavailable. Please check your connection.');
+          enterColdRetry();
           return;
         }
         fatalRetries++;
-        showError('Network error. Retrying...');
-        if (retryTimer) clearTimeout(retryTimer);
-        retryTimer = setTimeout(function () {
-          retryTimer = null;
-          if (!hls) return;
-          hls.startLoad();
-        }, RETRY_DELAY_MS);
+        showError(t('errNetwork', 'Reconnecting…'));
+        scheduleRetry(RETRY_DELAY_MS);
         break;
       case Hls.ErrorTypes.MEDIA_ERROR:
         // Cap recovery attempts — without it, a wedged decoder on a weak TV
@@ -109,15 +190,15 @@ function loadHls(url) {
         // no exit. Counter resets on FRAG_LOADED so a transient glitch
         // doesn't poison the budget for the rest of the session.
         if (mediaRetries >= MAX_FATAL_RETRIES) {
-          showError('Playback failed. Please restart the app.');
+          showError(t('errMedia', 'Playback failed. Please restart the app.'));
           return;
         }
         mediaRetries++;
-        showError('Media error. Recovering...');
+        showError(t('errRecovering', 'Recovering…'));
         hls.recoverMediaError();
         break;
       default:
-        showError('Playback failed. Please restart the app.');
+        showError(t('errFatal', 'Playback failed. Please restart the app.'));
         break;
     }
   });
@@ -127,7 +208,39 @@ function loadHls(url) {
     hideLoading();
     fatalRetries = 0;
     mediaRetries = 0;
+    coldRetrying = false;
+    if (coldRetryTimer) { clearTimeout(coldRetryTimer); coldRetryTimer = null; }
   });
+}
+
+function scheduleRetry(delay) {
+  if (retryTimer) clearTimeout(retryTimer);
+  retryTimer = setTimeout(function () {
+    retryTimer = null;
+    if (!hls) return;
+    hls.startLoad();
+  }, delay);
+}
+
+// "Cold retry" — fast retries are exhausted (origin is genuinely down or the
+// TV is offline). Show a "Stream offline" state and slow-poll. Reentrant:
+// each tick re-checks; FRAG_LOADED clears the timer when the stream returns.
+function enterColdRetry() {
+  coldRetrying = true;
+  showError(t('errOffline', 'Stream is offline. Retrying…'));
+  scheduleColdRetry();
+}
+
+function scheduleColdRetry() {
+  if (coldRetryTimer) clearTimeout(coldRetryTimer);
+  coldRetryTimer = setTimeout(function () {
+    coldRetryTimer = null;
+    if (!hls) return;
+    fatalRetries = 0;
+    hls.startLoad();
+    // If this attempt also fails, ERROR handler will re-enter cold retry.
+    scheduleColdRetry();
+  }, COLD_RETRY_DELAY_MS);
 }
 
 function loadNative(url) {
@@ -139,7 +252,7 @@ function loadNative(url) {
   }
   nativeTimeout = setTimeout(function () {
     nativeTimeout = null;
-    if (video.readyState < 2) showError('Stream did not start. Please restart the app.');
+    if (video.readyState < 2) showError(t('errStuck', 'Stream did not start. Please restart the app.'));
   }, NATIVE_TIMEOUT_MS);
   video.addEventListener('canplay', function () {
     clearNativeTimeout();
@@ -149,11 +262,44 @@ function loadNative(url) {
   }, { once: true });
   video.addEventListener('error', function () {
     clearNativeTimeout();
-    showError('Playback error. Please restart the app.');
+    showError(t('errPlayback', 'Playback error. Please restart the app.'));
   }, { once: true });
 }
 
 function safePlay() { video.play().catch(function () {}); }
+
+// --- Splash ---
+//
+// Bridges the gap between Tizen's platform splash (gone the moment the
+// WebView paints) and the first decoded frame. Hidden on first 'playing',
+// or after SPLASH_MAX_MS so a broken stream still surfaces the error UI.
+
+function setupSplash() {
+  if (!splashEl) return;
+  splashTimer = setTimeout(hideSplash, SPLASH_MAX_MS);
+  video.addEventListener('playing', hideSplash, { once: true });
+}
+
+function hideSplash() {
+  if (splashTimer) { clearTimeout(splashTimer); splashTimer = null; }
+  if (splashEl && !splashEl.classList.contains('fade')) {
+    splashEl.classList.add('fade');
+  }
+}
+
+// --- LIVE badge ---
+// Visible on first frame, then dims so it doesn't compete with the picture.
+
+function setupBadge() {
+  if (!liveBadge) return;
+  video.addEventListener('playing', function () {
+    if (liveDimTimer) clearTimeout(liveDimTimer);
+    liveDimTimer = setTimeout(function () {
+      liveDimTimer = null;
+      liveBadge.classList.add('dim');
+    }, LIVE_BADGE_DIM_DELAY_MS);
+  }, { once: true });
+}
 
 // --- Audio-only mode (TV equivalent of the extension's "radio mode") ---
 
@@ -229,9 +375,13 @@ function setupControlBar() {
   function syncPlayButton() {
     const playing = !video.paused && !video.ended;
     btnPlay.querySelector('.ctrl-icon').textContent = playing ? '⏸' : '▶';
-    btnPlay.querySelector('.ctrl-label').textContent = playing ? 'Pause' : 'Play';
-    btnPlay.setAttribute('aria-label', playing ? 'Pause' : 'Play');
+    const label = playing ? t('btnPause', 'Pause') : t('btnPlay', 'Play');
+    btnPlay.querySelector('.ctrl-label').textContent = label;
+    btnPlay.setAttribute('aria-label', label);
   }
+  // Localize the audio-only button label too (initial render is English).
+  btnAudio.querySelector('.ctrl-label').textContent = t('btnAudioOnly', 'Audio only');
+  btnAudio.setAttribute('aria-label', t('btnAudioOnly', 'Audio only'));
   video.addEventListener('play', syncPlayButton);
   video.addEventListener('pause', syncPlayButton);
   syncPlayButton();
@@ -433,11 +583,14 @@ function hideLoading() { overlayLoading.hidden = true; }
 // holds a native resource must be released here.
 
 function destroy() {
-  if (retryTimer)    { clearTimeout(retryTimer);     retryTimer = null; }
-  if (brandingTimer) { clearTimeout(brandingTimer);  brandingTimer = null; }
-  if (nativeTimeout) { clearTimeout(nativeTimeout);  nativeTimeout = null; }
-  if (idleTimer)     { clearTimeout(idleTimer);      idleTimer = null; }
-  if (hls)           { hls.destroy(); hls = null; }
+  if (retryTimer)     { clearTimeout(retryTimer);     retryTimer = null; }
+  if (coldRetryTimer) { clearTimeout(coldRetryTimer); coldRetryTimer = null; }
+  if (brandingTimer)  { clearTimeout(brandingTimer);  brandingTimer = null; }
+  if (liveDimTimer)   { clearTimeout(liveDimTimer);   liveDimTimer = null; }
+  if (splashTimer)    { clearTimeout(splashTimer);    splashTimer = null; }
+  if (nativeTimeout)  { clearTimeout(nativeTimeout);  nativeTimeout = null; }
+  if (idleTimer)      { clearTimeout(idleTimer);      idleTimer = null; }
+  if (hls)            { hls.destroy(); hls = null; }
 }
 
 window.addEventListener('pagehide', destroy);

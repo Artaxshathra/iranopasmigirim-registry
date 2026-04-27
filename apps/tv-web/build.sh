@@ -21,7 +21,7 @@ export SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(git -C "$ROOT" log -1 --format=
 echo "==> Verifying inputs"
 test -f "$ROOT/index.html"     || { echo "missing index.html"; exit 1; }
 test -f "$ROOT/lib/hls.min.js" || { echo "missing lib/hls.min.js (run bootstrap.sh)"; exit 1; }
-test -f "$ROOT/icon.png"       || node "$ROOT/make-icon.js"
+test -f "$ROOT/icon.png"       || { echo "missing icon.png"; exit 1; }
 test -f "$ROOT/config.xml"     || { echo "missing config.xml"; exit 1; }
 
 echo "==> Cleaning $DIST"

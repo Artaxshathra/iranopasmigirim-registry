@@ -12,7 +12,6 @@
             <resource>dist</resource>
             <resource>bootstrap.sh</resource>
             <resource>build.sh</resource>
-            <resource>make-icon.js</resource>
             <resource>package.json</resource>
             <resource>package-lock.json</resource>
         </blacklist>

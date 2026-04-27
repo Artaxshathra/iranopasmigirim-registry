@@ -1,4 +1,19 @@
 {
   "appName":         { "message": "پخش زنده INRTV" },
-  "appDescription":  { "message": "تماشای زنده تلویزیون ملی انقلاب ایران روی تلویزیون شما." }
+  "appDescription":  { "message": "تماشای زنده تلویزیون ملی انقلاب ایران روی تلویزیون شما." },
+  "splashSub":       { "message": "زنده" },
+  "liveBadge":       { "message": "زنده" },
+  "audioOnlyLabel":  { "message": "فقط صدا" },
+  "audioOnlySub":    { "message": "INRTV · پخش زنده" },
+  "btnPlay":         { "message": "پخش" },
+  "btnPause":        { "message": "مکث" },
+  "btnAudioOnly":    { "message": "فقط صدا" },
+  "errNoHls":        { "message": "این تلویزیون از پخش HLS پشتیبانی نمی‌کند." },
+  "errNetwork":      { "message": "در حال اتصال مجدد…" },
+  "errRecovering":   { "message": "در حال بازیابی…" },
+  "errMedia":        { "message": "پخش ناموفق بود. لطفاً برنامه را دوباره اجرا کنید." },
+  "errFatal":        { "message": "پخش ناموفق بود. لطفاً برنامه را دوباره اجرا کنید." },
+  "errOffline":      { "message": "پخش زنده در دسترس نیست. تلاش مجدد…" },
+  "errStuck":        { "message": "پخش آغاز نشد. لطفاً برنامه را دوباره اجرا کنید." },
+  "errPlayback":     { "message": "خطا در پخش. لطفاً برنامه را دوباره اجرا کنید." }
 }

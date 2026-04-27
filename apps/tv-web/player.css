@@ -1,6 +1,19 @@
 /* TV-first 10-foot UI. Designed for 1920×1080 with the viewer ~3 m away.
    Base size, contrast, and focus rings are all tuned for that distance. */
 
+/* Vazirmatn (OFL-1.1) — variable font covers every weight in one file, so
+   the UI can shift weight without bundling 9 separate weights. Latin
+   glyphs render as well as Persian, so we use it for the whole UI and
+   avoid a font-swap flicker between the two scripts. */
+@font-face {
+  font-family: 'Vazirmatn';
+  src: url('lib/fonts/Vazirmatn-wght.woff2') format('woff2-variations'),
+       url('lib/fonts/Vazirmatn-wght.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: block;
+}
+
 :root {
   --accent: #c41e3a;
   --bg: #000;
@@ -17,10 +30,9 @@ html, body {
   background: var(--bg);
   color: var(--fg);
   overflow: hidden;
-  /* Vazirmatn-class fonts aren't bundled yet — system stack works on every
-     TV browser tested. Persian renders correctly with the Noto fallback that
-     Tizen/webOS ship by default. */
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  /* Vazirmatn first (bundled, OFL-1.1) — covers Latin and Persian glyphs
+     so the UI doesn't flicker between scripts when the locale changes. */
+  font-family: 'Vazirmatn', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
   font-size: 24px;
   -webkit-font-smoothing: antialiased;
 }
@@ -220,3 +232,115 @@ body.audio-only #audio-face { display: flex; }
 @media (prefers-reduced-motion: reduce) {
   #control-bar { transition: none; }
 }
+
+/* --- HTML splash (bridges platform splash → first frame) ---
+   Painted on first DOM ready, removed by JS on first 'playing' event.
+   Sits above the loading overlay so the spinner only shows if the splash
+   has already faded but the stream is still negotiating. */
+
+#splash {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  z-index: 20;
+  opacity: 1;
+  transition: opacity 0.4s ease;
+}
+
+#splash.fade {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.splash-mark {
+  width: 240px;
+  height: 240px;
+  image-rendering: -webkit-optimize-contrast;
+}
+
+.splash-name {
+  margin-top: 28px;
+  font-size: 48px;
+  font-weight: 700;
+  letter-spacing: 6px;
+  color: var(--fg);
+}
+
+.splash-sub {
+  margin-top: 8px;
+  font-size: 22px;
+  letter-spacing: 4px;
+  color: var(--dim);
+  text-transform: uppercase;
+}
+
+/* --- LIVE badge (top-left) ---
+   Persistent channel mark with a slow-pulsing red dot so the viewer can
+   tell at a glance that they're watching live, not a frozen frame. */
+
+.live-badge {
+  position: absolute;
+  top: 32px;
+  left: 36px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 18px;
+  background: rgba(0, 0, 0, 0.55);
+  border-radius: 8px;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  color: var(--fg);
+  pointer-events: none;
+  z-index: 3;
+  transition: opacity 0.4s ease;
+}
+
+.live-badge.dim { opacity: 0.35; }
+
+.live-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: live-pulse 2s ease-in-out infinite;
+}
+
+.live-text {
+  font-weight: 700;
+  letter-spacing: 3px;
+}
+
+.live-channel {
+  margin-left: 6px;
+  font-weight: 600;
+  color: var(--dim);
+}
+
+@keyframes live-pulse {
+  0%, 100% { opacity: 1;   transform: scale(1); }
+  50%      { opacity: 0.4; transform: scale(0.85); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-dot { animation: none; }
+  #splash { transition: none; }
+}
+
+/* --- RTL: Persian locale ---
+   When dir="rtl" is set on <html>, mirror positional elements that we
+   placed by direction (badge, branding) so they sit on the culturally
+   appropriate side. */
+
+html[dir="rtl"] .live-badge { left: auto; right: 36px; }
+html[dir="rtl"] .branding   { right: auto; left: 36px; }
+html[dir="rtl"] .splash-name,
+html[dir="rtl"] .splash-sub,
+html[dir="rtl"] .audio-label,
+html[dir="rtl"] .audio-sub,
+html[dir="rtl"] .ctrl-label { letter-spacing: 0; }
