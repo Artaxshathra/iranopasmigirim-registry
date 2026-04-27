@@ -15,6 +15,13 @@ describe('tv-web Tizen: config.xml', () => {
     assert.match(xml, /xmlns:tizen="http:\/\/tizen\.org\/ns\/widgets"/);
   });
 
+  it('contains no bare ampersands (XML rejects them; Tizen build refuses)', () => {
+    // & must be &amp; in XML text. Caught the hard way the first time we
+    // tried to launch from Studio — WidgetConfigurator failed at line 33.
+    const bare = xml.match(/&(?!amp;|lt;|gt;|quot;|apos;|#\d+;|#x[0-9a-fA-F]+;)/g);
+    assert.equal(bare, null, 'every & in config.xml must be an XML entity');
+  });
+
   it('declares a tizen:application id and matching package id', () => {
     // The 10-char string before the dot in tizen:application@id MUST equal
     // tizen:application@package — Tizen rejects the .wgt otherwise.
@@ -38,6 +45,30 @@ describe('tv-web Tizen: config.xml', () => {
     assert.match(xml, /screen-orientation="landscape"/);
     assert.match(xml, /background-support="disable"/);
     assert.match(xml, /encryption="disable"/);
+  });
+
+  it('declares a tizen:content-security-policy (meta CSP is ignored on Tizen)', () => {
+    // Tizen WebView drops the meta http-equiv CSP and substitutes its own
+    // default-src * — which blocks blob: and breaks hls.js silently. Only
+    // the Tizen-namespaced element is enforced.
+    const m = xml.match(/<tizen:content-security-policy>([^<]+)<\/tizen:content-security-policy>/);
+    assert.ok(m, 'must declare <tizen:content-security-policy>');
+    const csp = m[1];
+    assert.match(csp, /media-src[^;]*\bblob:/, 'media-src must allow blob: for MSE');
+    assert.match(csp, /connect-src[^;]*https:\/\/hls\.irannrtv\.live/);
+    assert.match(csp, /default-src\s+'none'/);
+  });
+
+  it('Tizen CSP and meta CSP agree on the stream origin', () => {
+    // Drift between the two means one surface allows what the other blocks.
+    const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+    const metaMatch = html.match(/Content-Security-Policy["'][^>]+content=("([^"]+)"|'([^']+)')/);
+    const meta = metaMatch[2] || metaMatch[3];
+    const tizenMatch = xml.match(/<tizen:content-security-policy>([^<]+)<\/tizen:content-security-policy>/);
+    const tizen = tizenMatch[1];
+    const metaOrigin = meta.match(/connect-src[^;]*?(https:\/\/[^\s;]+)/)[1];
+    const tizenOrigin = tizen.match(/connect-src[^;]*?(https:\/\/[^\s;]+)/)[1];
+    assert.equal(metaOrigin, tizenOrigin, 'meta and Tizen CSP must pin the same stream origin');
   });
 
   it('whitelists exactly the stream origin (matches CSP)', () => {

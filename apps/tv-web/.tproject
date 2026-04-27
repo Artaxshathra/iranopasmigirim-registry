@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<tproject xmlns="http://www.tizen.org/tproject">
+    <platforms>
+        <platform>
+            <name>tv-samsung-10.0</name>
+        </platform>
+    </platforms>
+    <package>
+        <blacklist>
+            <resource>node_modules</resource>
+            <resource>test</resource>
+            <resource>dist</resource>
+            <resource>bootstrap.sh</resource>
+            <resource>build.sh</resource>
+            <resource>make-icon.js</resource>
+            <resource>package.json</resource>
+            <resource>package-lock.json</resource>
+        </blacklist>
+    </package>
+</tproject>

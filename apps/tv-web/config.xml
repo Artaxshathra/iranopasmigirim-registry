@@ -30,7 +30,7 @@
                      package="iNRTVlive0"
                      required_version="6.0"/>
   <name>INRTV Live</name>
-  <description>Iranian National Radio & TV — live stream</description>
+  <description>Iranian National Radio &amp; TV — live stream</description>
   <author email="contact@irannrtv.live" href="https://irannrtv.live">INRTV</author>
   <icon src="icon.png"/>
   <content src="index.html"/>
@@ -41,7 +41,14 @@
                  install-location="auto"
                  hwkey-event="enable"/>
   <tizen:metadata key="http://samsung.com/tv/metadata/use.legacy.event" value="false"/>
+  <!-- Tizen's WebView ignores the <meta http-equiv> CSP in index.html and
+       substitutes default-src *, which (a) is wide open and (b) blocks blob:
+       URLs. The MediaSource that hls.js feeds to <video> is a blob:, so live
+       playback dies silently with a console-only refusal. The Tizen-namespaced
+       element is the only CSP the platform actually enforces. Mirror the meta
+       tag directives so the two surfaces stay aligned. -->
+  <tizen:content-security-policy>default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src https://hls.irannrtv.live; media-src https://hls.irannrtv.live blob:; object-src 'none'; base-uri 'self'; form-action 'none'</tizen:content-security-policy>
   <access origin="https://hls.irannrtv.live" subdomains="false"/>
-  <allow-navigation>https://hls.irannrtv.live</allow-navigation>
+  <tizen:allow-navigation>https://hls.irannrtv.live</tizen:allow-navigation>
   <feature name="http://tizen.org/feature/screen.size.normal.1080.1920"/>
 </widget>

@@ -1,3 +1,10 @@
 node_modules/
 dist/
 *.zip
+
+# Tizen Studio build artifacts (regenerated on each Run/Build)
+.sign/
+*.wgt
+
+# Eclipse / Tizen Studio per-user state
+.metadata/
