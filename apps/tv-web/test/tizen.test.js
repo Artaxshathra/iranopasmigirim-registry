@@ -89,12 +89,12 @@ describe('tv-web Tizen: config.xml', () => {
       `icon "${iconMatch[1]}" must exist at project root`);
   });
 
-  it('declares a tizen:splash-screen with an asset that exists', () => {
+  it('declares a tizen:splash with an asset that exists', () => {
     // Without the platform splash the TV flashes black for ~600ms between
-    // launcher and first WebView paint. Verify the element is present and
-    // points at a real file so a future refactor cannot silently regress it.
-    const m = xml.match(/<tizen:splash-screen\s+src="([^"]+)"/);
-    assert.ok(m, 'must declare <tizen:splash-screen>');
+    // launcher and first WebView paint. The TV schema requires the
+    // singular <tizen:splash src="..."/> form (mobile uses splash-screens).
+    const m = xml.match(/<tizen:splash\s+src="([^"]+)"/);
+    assert.ok(m, 'must declare <tizen:splash>');
     assert.ok(fs.existsSync(path.join(ROOT, m[1])),
       `splash asset "${m[1]}" must exist`);
   });

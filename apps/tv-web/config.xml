@@ -38,10 +38,11 @@
   <!-- Platform splash: Tizen draws this image, centered on black, between
        app launch and the first WebView paint. Without it the TV shows a
        blank black flash for ~600 ms. Reusing icon.png keeps the visual
-       chain (launcher tile → splash → in-app branding) coherent. -->
-  <tizen:splash-screens>
-    <tizen:splash-screen src="icon.png" type="img" dpi="xhdpi" orientation="landscape" indicator="disable"/>
-  </tizen:splash-screens>
+       chain (launcher tile → splash → in-app branding) coherent. The
+       schema element is <tizen:splash> (singular, no wrapper) — the
+       <tizen:splash-screens> form documented for mobile profiles is
+       rejected by the TV schema. -->
+  <tizen:splash src="icon.png"/>
   <tizen:setting screen-orientation="landscape"
                  background-support="disable"
                  encryption="disable"
