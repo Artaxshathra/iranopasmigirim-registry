@@ -491,12 +491,29 @@ function maybeResume() {
   // quick succession, which hls.js handles but produces a visible re-buffer.
   if (now - lastResumeAt < RESUME_DEBOUNCE_MS) return;
   lastResumeAt = now;
+  // Hide the stale frame BEFORE kicking off the reload. Without this, the
+  // WebView resumes the paused video from its last decoded frame for ~3 s
+  // (yesterday's content) before hls.js's reload catches up to live edge.
+  // Pause + a fully-opaque overlay turns those 3 s into an honest spinner
+  // instead of a lie. The 'playing' handler clears the overlay once the
+  // new (live-edge) frames start decoding. The .solid class gives a 100%
+  // black backdrop instead of the 70% used for mid-stream buffering — a
+  // semi-transparent overlay would still let the stale frame bleed through.
+  try { video.pause(); } catch (_) {}
+  if (overlayLoading) {
+    overlayLoading.classList.add('solid');
+    overlayLoading.hidden = false;
+  }
   // Force a clean reload from the live edge. startLoad(-1) tells hls.js to
   // pick liveSyncPosition; the LEVEL_LOADED handler then snaps currentTime
   // if we're still drifted.
   try {
     hls.stopLoad();
     hls.startLoad(-1);
+    // Ask the play promise to start as soon as new fragments arrive — the
+    // pause above is an honest "I'm not playing this stale frame", but we
+    // still want playback to resume the moment the fresh stream is ready.
+    safePlay();
   } catch (_) { /* hls in a weird state; let normal recovery handle it */ }
 }
 
@@ -530,6 +547,10 @@ function setupBuffering() {
   video.addEventListener('playing', function () {
     if (bufferingTimer) { clearTimeout(bufferingTimer); bufferingTimer = null; }
     overlayLoading.hidden = true;
+    // Drop the solid backdrop on the way out so a later mid-stream stall
+    // shows the standard semi-transparent overlay (a hint of the picture
+    // is the right behavior when the buffer just hiccups, not on resume).
+    overlayLoading.classList.remove('solid');
   });
 }
 
@@ -844,7 +865,10 @@ function showError(msg) {
 }
 
 function hideError() { overlayError.hidden = true; }
-function hideLoading() { overlayLoading.hidden = true; }
+function hideLoading() {
+  overlayLoading.hidden = true;
+  overlayLoading.classList.remove('solid');
+}
 
 // --- Cleanup ---
 // Single source of truth for teardown. Anything that schedules async work or

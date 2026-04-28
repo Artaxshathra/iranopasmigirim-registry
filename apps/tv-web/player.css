@@ -97,6 +97,12 @@ html, body {
 
 #overlay-loading { background: rgba(0, 0, 0, 0.7); z-index: 5; }
 
+/* Solid variant: used during wake-from-sleep to fully cover the stale frame
+   the WebView resumed from. The transparent default is right for mid-stream
+   buffering (you want a hint of the picture so the viewer knows it's not
+   gone) but wrong on resume — there, hiding the stale frame is the goal. */
+#overlay-loading.solid { background: var(--bg); }
+
 #error-msg {
   font-size: 28px;
   color: var(--fg);

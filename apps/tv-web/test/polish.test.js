@@ -129,6 +129,39 @@ describe('tv-web polish: resume on return (wake-from-sleep / app switch)', () =>
       'staleness must be 15-60s; shorter triggers spurious reloads, longer feels broken');
   });
 
+  it('maybeResume hides the stale frame before kicking off the reload', () => {
+    // Without this, the WebView resumes the paused video from its last
+    // decoded frame for a few seconds before hls.js catches up to live edge,
+    // so the viewer sees yesterday's content during wake-from-sleep. The fix
+    // is to pause + show a fully-opaque overlay BEFORE startLoad(-1) so the
+    // stale frame is never visible. The 'playing' handler clears the overlay
+    // once the fresh stream starts decoding.
+    const fn = playerJs.slice(playerJs.indexOf('function maybeResume'),
+                              playerJs.indexOf('function setupResume'));
+    // pause must come before startLoad in source order
+    const pauseIdx = fn.indexOf('video.pause(');
+    const startIdx = fn.indexOf('startLoad(');
+    assert.ok(pauseIdx > 0 && pauseIdx < startIdx,
+      'video.pause() must precede startLoad() to mask the stale frame');
+    // overlay must be made solid (fully opaque) — the default 70% lets the
+    // stale frame bleed through.
+    assert.match(fn, /classList\.add\(\s*['"]solid['"]/);
+    assert.match(fn, /overlayLoading\.hidden\s*=\s*false/);
+  });
+
+  it("CSS .solid modifier gives the loading overlay an opaque backdrop", () => {
+    // The default 70% transparency is right for mid-stream buffering (you
+    // want a hint of the picture so the viewer knows it's not gone) but
+    // wrong on resume — there, hiding the stale frame is the goal.
+    assert.match(css, /#overlay-loading\.solid\s*\{[\s\S]*?background:\s*var\(--bg\)/);
+  });
+
+  it("'playing' handler drops the solid class so later stalls don't stay opaque", () => {
+    const fn = playerJs.slice(playerJs.indexOf('function setupBuffering'),
+                              playerJs.indexOf('function setupBuffering') + 1200);
+    assert.match(fn, /classList\.remove\(\s*['"]solid['"]/);
+  });
+
   it('init() wires setupResume', () => {
     const initFn = playerJs.slice(playerJs.indexOf('function init'),
                                   playerJs.indexOf('function init') + 800);
