@@ -9,53 +9,35 @@ const SRC = path.join(__dirname, '..');
 const playerJs = fs.readFileSync(path.join(SRC, 'player.js'), 'utf8');
 const indexHtml = fs.readFileSync(path.join(SRC, 'index.html'), 'utf8');
 
-describe('tv-web TV UX: control bar', () => {
-  it('control bar exists, is hidden by default, and is labelled', () => {
-    assert.match(indexHtml, /<nav[^>]+id=["']control-bar["'][^>]*\bhidden\b[^>]*aria-label=/);
+describe('tv-web TV UX: minimal chrome', () => {
+  it('no docked control bar / play button / audio button in HTML', () => {
+    // The app intentionally has no persistent chrome at the bottom of the
+    // screen. Play state is communicated via the transient state pill.
+    // Audio-only / "radio" mode is fully removed: Tizen has no PiP and no
+    // reliable background-audio path, so the feature would just be a black
+    // screen with the same chrome.
+    assert.ok(!/id=["']control-bar["']/.test(indexHtml));
+    assert.ok(!/id=["']btn-play["']/.test(indexHtml));
+    assert.ok(!/id=["']btn-audio["']/.test(indexHtml));
+    assert.ok(!/id=["']audio-face["']/.test(indexHtml));
   });
 
-  it('exposes Play and Audio-only as the only two D-pad targets', () => {
-    const ids = [...indexHtml.matchAll(/<button[^>]+id=["']([^"']+)["']/g)].map(m => m[1]);
-    assert.deepEqual(ids, ['btn-play', 'btn-audio']);
+  it('no software volume bar (TV platform owns volume UI)', () => {
+    // Hardware volume keys on the TV remote are routed to the platform's own
+    // volume control, not the WebView. Drawing a software bar would be
+    // confusing because it never reflects what the viewer actually changed.
+    assert.ok(!/id=["']volume-bar["']/.test(indexHtml));
+    assert.ok(!/showVolumeBar/.test(playerJs));
+    assert.ok(!/adjustVolume/.test(playerJs));
   });
 
-  it('Audio button declares aria-pressed (state, not just label)', () => {
-    assert.match(indexHtml, /id=["']btn-audio["'][^>]*aria-pressed=["']false["']/);
-  });
-
-  it('player keeps aria-pressed in sync with audio-only state', () => {
-    assert.match(playerJs, /btnAudio\.setAttribute\(\s*['"]aria-pressed['"]\s*,\s*on\s*\?\s*['"]true['"]\s*:\s*['"]false['"]/);
-  });
-
-  it('control bar has its own focus styles (visible at 10 feet)', () => {
-    const css = fs.readFileSync(path.join(SRC, 'player.css'), 'utf8');
-    assert.match(css, /\.ctrl:focus(-visible)?\s*[,{]/);
-    assert.match(css, /box-shadow[^;]*rgba\(196,\s*30,\s*58/, 'focus ring uses brand accent');
-  });
-});
-
-describe('tv-web TV UX: idle auto-hide', () => {
-  it('idle timeout is at least 8s (longer than mouse-driven UI)', () => {
-    const m = playerJs.match(/IDLE_HIDE_MS\s*=\s*(\d+)/);
-    assert.ok(m, 'IDLE_HIDE_MS must be defined');
-    assert.ok(Number(m[1]) >= 8000, 'remote users need a longer idle window than mouse users');
-  });
-
-  it('idle timer is reset on every showBar/resetIdle', () => {
-    assert.match(playerJs, /function resetIdle\(\)\s*\{[\s\S]*clearTimeout\(idleTimer\)[\s\S]*setTimeout\(hideBar/);
-  });
-
-  it('hideBar clears the idle timer (no zombie timeouts)', () => {
-    const fn = playerJs.slice(playerJs.indexOf('function hideBar'),
-                              playerJs.indexOf('function resetIdle'));
-    assert.match(fn, /clearTimeout\(idleTimer\)/);
-    assert.match(fn, /idleTimer\s*=\s*null/);
-  });
-
-  it('destroy() also clears idleTimer', () => {
-    const fn = playerJs.slice(playerJs.indexOf('function destroy'),
-                              playerJs.indexOf('function destroy') + 600);
-    assert.match(fn, /clearTimeout\(\s*idleTimer\s*\)/);
+  it('keyboard handler does not bind ArrowUp/Down (no software volume)', () => {
+    // ArrowUp/Down would silently mutate video.volume (HTML5 gain) which is
+    // multiplied by the TV master and confusing relative to the platform OSD.
+    const kb = playerJs.slice(playerJs.indexOf('function setupKeyboard'),
+                              playerJs.indexOf('// --- Platform integration ---'));
+    assert.ok(!/case\s+['"]ArrowUp['"]/.test(kb));
+    assert.ok(!/case\s+['"]ArrowDown['"]/.test(kb));
   });
 });
 
@@ -68,9 +50,11 @@ describe('tv-web TV UX: D-pad and remote keycodes', () => {
     assert.match(playerJs, /8\s*:\s*['"]back['"]/);
   });
 
-  it('maps the W3C media transport keycodes (Play=415, Pause=19)', () => {
-    assert.match(playerJs, /415\s*:\s*['"]play['"]/);
-    assert.match(playerJs, /19\s*:\s*['"]pause['"]/);
+  it('maps W3C media transport keycodes for play/pause', () => {
+    // All transport codes collapse to a single 'playpause' toggle — there is
+    // no distinct 'play' or 'pause' state to navigate to from the remote.
+    assert.match(playerJs, /415\s*:\s*['"]playpause['"]/);
+    assert.match(playerJs, /19\s*:\s*['"]playpause['"]/);
   });
 
   it('numeric remote codes are checked BEFORE named keys', () => {
@@ -83,36 +67,20 @@ describe('tv-web TV UX: D-pad and remote keycodes', () => {
     assert.ok(remoteIdx < switchIdx, 'remote-code lookup must precede named-key switch');
   });
 
-  it('Back dismisses the bar when visible, exits when hidden', () => {
+  it('Back always exits cleanly and consumes the event', () => {
     const block = playerJs.slice(playerJs.indexOf("case 'back':"),
                                  playerJs.indexOf("case 'stop':"));
-    assert.match(block, /isBarVisible\(\)/);
-    assert.match(block, /hideBar\(\)/);
     assert.match(block, /platformExit\(\)/);
-    assert.match(block, /preventDefault/, 'must consume Back when handled, so platform does not also exit');
-  });
-
-  it('Arrow keys move focus when bar is visible, reveal it when hidden', () => {
-    const block = playerJs.slice(playerJs.indexOf("case 'left':"),
-                                 playerJs.indexOf("case 'enter':"));
-    assert.match(block, /isBarVisible\(\)/);
-    assert.match(block, /moveFocus\(-1\)/);
-    assert.match(block, /moveFocus\(1\)/);
-    assert.match(block, /showBar\(\)/);
-  });
-
-  it('moveFocus wraps around the button list', () => {
-    assert.match(playerJs, /\(\s*i\s*\+\s*dir\s*\+\s*buttons\.length\s*\)\s*%\s*buttons\.length/);
+    assert.match(block, /preventDefault/, 'must consume Back so platform does not also exit');
   });
 });
 
 describe('tv-web TV UX: platform integration', () => {
   it('feature-detects Tizen and webOS — never assumes either is present', () => {
     // Touching tizen.* or webOS.* unguarded throws ReferenceError in browsers
-    // and on the other vendor's TV. Every reference must be try/catch + typeof.
+    // and on the other vendor's TV. Every reference must be typeof-guarded.
     const hits = [...playerJs.matchAll(/\b(tizen|webOS)\b/g)];
     assert.ok(hits.length > 0, 'platform globals must be referenced somewhere');
-    // Each platform reference must sit inside a typeof guard.
     assert.match(playerJs, /typeof\s+tizen\s*!==\s*['"]undefined['"]/);
     assert.match(playerJs, /typeof\s+webOS\s*!==\s*['"]undefined['"]/);
   });
@@ -122,7 +90,6 @@ describe('tv-web TV UX: platform integration', () => {
                               playerJs.indexOf('// --- Branding fade ---'));
     assert.match(fn, /tizen\.application[\s\S]*\.exit\(\)/);
     assert.match(fn, /webOS\.platformBack\(\)/);
-    // Must not throw if neither global is present.
     assert.match(fn, /try\s*\{[\s\S]*\}\s*catch/);
   });
 
@@ -130,15 +97,5 @@ describe('tv-web TV UX: platform integration', () => {
     assert.match(playerJs, /tizen\.tvinputdevice\.registerKey/);
     assert.match(playerJs, /MediaPlay/);
     assert.match(playerJs, /MediaPause/);
-  });
-});
-
-describe('tv-web TV UX: state sync', () => {
-  it('Play button label/icon track the actual <video> play state', () => {
-    const fn = playerJs.slice(playerJs.indexOf('function setupControlBar'),
-                              playerJs.indexOf('// --- Keyboard'));
-    assert.match(fn, /video\.addEventListener\(\s*['"]play['"]/);
-    assert.match(fn, /video\.addEventListener\(\s*['"]pause['"]/);
-    assert.match(fn, /video\.paused/);
   });
 });

@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
-# Build all TV-app packages from this project root.
+# Build the Tizen TV web-app package.
 #
-# Outputs:
+# Output:
 #   dist/inrtv-tizen.wgt   — Samsung TV widget package (unsigned)
-#   dist/inrtv-webos.ipk   — LG TV package (added in Step 4)
 #
 # The .wgt is a zip with config.xml at the root next to the web assets.
 # Tizen Studio signs it with your author + distributor certificates at
 # install time; this script intentionally does not bundle a signing step
 # so the build is reproducible without secrets.
+#
+# A future webOS .ipk target will be added under a separate stage path.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
@@ -19,10 +20,12 @@ STAGE="$DIST/_stage"
 export SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(git -C "$ROOT" log -1 --format=%ct 2>/dev/null || echo 0)}"
 
 echo "==> Verifying inputs"
-test -f "$ROOT/index.html"     || { echo "missing index.html"; exit 1; }
-test -f "$ROOT/lib/hls.min.js" || { echo "missing lib/hls.min.js (run bootstrap.sh)"; exit 1; }
-test -f "$ROOT/icon.png"       || { echo "missing icon.png"; exit 1; }
-test -f "$ROOT/config.xml"     || { echo "missing config.xml"; exit 1; }
+test -f "$ROOT/index.html"                       || { echo "missing index.html"; exit 1; }
+test -f "$ROOT/lib/hls.min.js"                   || { echo "missing lib/hls.min.js (run bootstrap.sh)"; exit 1; }
+test -f "$ROOT/lib/fonts/Vazirmatn-wght.woff2"   || { echo "missing Vazirmatn font (run bootstrap.sh)"; exit 1; }
+test -f "$ROOT/icon.png"                         || { echo "missing icon.png"; exit 1; }
+test -f "$ROOT/config.xml"                       || { echo "missing config.xml"; exit 1; }
+test -d "$ROOT/_locales/en" -a -d "$ROOT/_locales/fa" || { echo "missing _locales/{en,fa}"; exit 1; }
 
 echo "==> Cleaning $DIST"
 rm -rf "$DIST"

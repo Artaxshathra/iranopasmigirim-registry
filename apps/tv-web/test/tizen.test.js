@@ -57,6 +57,21 @@ describe('tv-web Tizen: config.xml', () => {
     assert.match(csp, /media-src[^;]*\bblob:/, 'media-src must allow blob: for MSE');
     assert.match(csp, /connect-src[^;]*https:\/\/hls\.irannrtv\.live/);
     assert.match(csp, /default-src\s+'none'/);
+    // 'self' in connect-src is required for the same-origin XHR that loads
+    // _locales/<lang>/messages.json — without it Persian silently fails to
+    // load and every translatable string falls back to English.
+    assert.match(csp, /connect-src[^;]*'self'/, "connect-src must allow 'self' for locale XHR");
+    // Belt-and-braces hardening: explicitly deny workers and frames since
+    // hls.js with enableWorker:false won't spawn workers and we never frame.
+    assert.match(csp, /worker-src\s+'none'/);
+    assert.match(csp, /frame-src\s+'none'/);
+  });
+
+  it('declares the tv.inputdevice privilege (required for registerKey)', () => {
+    // tizen.tvinputdevice.registerKey() silently no-ops without this
+    // privilege — the MediaPlay/Pause/Stop buttons on the remote then
+    // never reach the app and bubble to the TV's system handler instead.
+    assert.match(xml, /<tizen:privilege\s+name="http:\/\/tizen\.org\/privilege\/tv\.inputdevice"/);
   });
 
   it('Tizen CSP and meta CSP agree on the stream origin', () => {

@@ -60,6 +60,51 @@ describe('tv-web polish: LIVE badge', () => {
     assert.ok(Number(m[1]) >= 8000, 'badge must not dim faster than the chrome bar hides');
     assert.match(playerJs, /liveBadge\.classList\.add\(\s*['"]dim['"]/);
   });
+
+  it('badge is hidden in HTML by default (only revealed once truly live)', () => {
+    // Showing a red pulsing "LIVE" dot before the first frame is a lie —
+    // the picture might still be loading or the stream might be down.
+    assert.match(html, /id=["']live-badge["'][^>]*\bhidden\b/);
+  });
+
+  it('badge has a .stale rule that greys the dot and stops the pulse', () => {
+    // While buffering or on error, the dot must not pulse red — that would
+    // tell the viewer "you're watching live" while the picture is frozen.
+    assert.match(css, /\.live-badge\.stale\s+\.live-dot[\s\S]*?animation:\s*none/);
+    assert.match(css, /\.live-badge\.stale\s+\.live-dot[\s\S]*?background:\s*var\(--dim\)/);
+  });
+
+  it('player marks the badge stale on waiting/error and revives on playing', () => {
+    // markBadgeStale must be called from waiting + showError; showLiveBadge
+    // must clear stale on each 'playing' so a recovered stream lights up
+    // the dot again.
+    assert.match(playerJs, /function markBadgeStale/);
+    assert.match(playerJs, /function showLiveBadge/);
+    const setupBadge = playerJs.slice(playerJs.indexOf('function setupBadge'),
+                                      playerJs.indexOf('function setupBadge') + 800);
+    assert.match(setupBadge, /addEventListener\(\s*['"]waiting['"]\s*,\s*markBadgeStale/);
+    assert.match(setupBadge, /showLiveBadge\(\)/);
+    const showErr = playerJs.slice(playerJs.indexOf('function showError'),
+                                   playerJs.indexOf('function showError') + 400);
+    assert.match(showErr, /markBadgeStale\(\)/,
+      'showError must mark the badge stale (no live dot during errors)');
+  });
+});
+
+describe('tv-web polish: live-edge enforcement', () => {
+  it('LEVEL_LOADED handler snaps playback to liveSyncPosition on cold start', () => {
+    // Without this, hls.js can start a few segments back from live (the
+    // manifest's EXT-X-START or the head of the live window), which the
+    // viewer perceives as "the app showed yesterday for a few seconds
+    // before catching up". Snapping to liveSyncPosition on cold start
+    // eliminates the visible drift.
+    assert.match(playerJs, /Hls\.Events\.LEVEL_LOADED/);
+    const handler = playerJs.slice(playerJs.indexOf('Hls.Events.LEVEL_LOADED'),
+                                   playerJs.indexOf('Hls.Events.LEVEL_LOADED') + 600);
+    assert.match(handler, /liveSyncPosition/);
+    assert.match(handler, /currentTime/);
+    assert.match(handler, /details\.live/, 'must guard on details.live (VOD must not snap)');
+  });
 });
 
 describe('tv-web polish: i18n + RTL', () => {
@@ -203,6 +248,156 @@ describe('tv-web polish: leak hygiene', () => {
       assert.match(destroy, new RegExp('clearTimeout\\(\\s*' + name + '\\s*\\)'),
         `destroy() must clear ${name}`);
     }
+  });
+});
+
+describe('tv-web polish: buffering indicator', () => {
+  it('subscribes to waiting/playing on the video element', () => {
+    // Mid-stream stalls are silent without this — the picture freezes and
+    // the viewer doesn't know whether the app is broken or the stream is.
+    const fn = playerJs.slice(playerJs.indexOf('function setupBuffering'),
+                              playerJs.indexOf('function setupBuffering') + 800);
+    assert.match(fn, /addEventListener\(\s*['"]waiting['"]/);
+    assert.match(fn, /addEventListener\(\s*['"]playing['"]/);
+  });
+
+  it('debounces the buffering overlay (no flicker on sub-second jitter)', () => {
+    // Showing the spinner for every 200 ms hiccup feels broken. Wait long
+    // enough that only real stalls surface UI.
+    assert.match(playerJs, /BUFFERING_DEBOUNCE_MS\s*=\s*(\d+)/);
+    const m = playerJs.match(/BUFFERING_DEBOUNCE_MS\s*=\s*(\d+)/);
+    assert.ok(Number(m[1]) >= 400 && Number(m[1]) <= 1500,
+      'debounce should be 400-1500ms; outside that, it either flickers or feels stuck');
+  });
+
+  it('buffering does not stomp the error overlay (error takes precedence)', () => {
+    const fn = playerJs.slice(playerJs.indexOf('function setupBuffering'),
+                              playerJs.indexOf('function setupBuffering') + 800);
+    assert.match(fn, /overlayError\.hidden/);
+  });
+});
+
+describe('tv-web polish: manual retry from error overlay', () => {
+  it('Enter on error overlay calls manualRetry instead of activating chrome', () => {
+    // Without this branch a viewer stuck on "Stream is offline" can't escape
+    // without restarting the app — Enter would just toggle the chrome.
+    const enterCase = playerJs.match(/case\s+['"]enter['"]\s*:[\s\S]*?break;/);
+    assert.ok(enterCase, "'enter' case must exist in dispatchAction");
+    assert.match(enterCase[0], /overlayError\.hidden/);
+    assert.match(enterCase[0], /manualRetry\(\)/);
+  });
+
+  it('manualRetry is rate-limited (no origin hammering on key-mash)', () => {
+    assert.match(playerJs, /MANUAL_RETRY_COOLDOWN_MS\s*=\s*(\d+)/);
+    const m = playerJs.match(/MANUAL_RETRY_COOLDOWN_MS\s*=\s*(\d+)/);
+    assert.ok(Number(m[1]) >= 1500, 'cooldown too short, will hammer origin');
+    const fn = playerJs.slice(playerJs.indexOf('function manualRetry'),
+                              playerJs.indexOf('function manualRetry') + 600);
+    assert.match(fn, /lastManualRetryAt/);
+  });
+
+  it('manualRetry clears retry/cold-retry timers (no double-trigger)', () => {
+    const fn = playerJs.slice(playerJs.indexOf('function manualRetry'),
+                              playerJs.indexOf('function manualRetry') + 600);
+    assert.match(fn, /clearTimeout\(\s*retryTimer\s*\)/);
+    assert.match(fn, /clearTimeout\(\s*coldRetryTimer\s*\)/);
+  });
+
+  it('error overlay declares the retry hint with i18n key', () => {
+    const html = fs.readFileSync(path.join(SRC, 'index.html'), 'utf8');
+    assert.match(html, /id=["']error-hint["'][^>]+data-i18n=["']errRetryHint["']/);
+  });
+});
+
+describe('tv-web polish: transient state pill (play/pause feedback)', () => {
+  it('pill element + both SVG icons exist in HTML, pill hidden by default', () => {
+    const html = fs.readFileSync(path.join(SRC, 'index.html'), 'utf8');
+    assert.match(html, /id=["']state-pill["'][^>]*\bhidden\b/,
+      'pill must start hidden so it never flashes on load');
+    // Two SVGs share the slot; player.js swaps which is visible. Vector
+    // glyphs stay crisp at any TV scale; font glyphs (▶/⏸) render fuzzy.
+    assert.match(html, /id=["']state-pill-icon-play["'][\s\S]*?<\/svg>/);
+    assert.match(html, /id=["']state-pill-icon-pause["'][\s\S]*?<\/svg>/);
+    // Older Tizen WebViews don't apply the UA's [hidden]{display:none} rule
+    // to inline SVG, so we hide the pause icon via inline style instead.
+    assert.match(html, /id=["']state-pill-icon-pause["'][^>]*style=["']display:\s*none["']/,
+      'pause SVG must start hidden via inline style (Tizen ignores [hidden] on SVG)');
+  });
+
+  it('setupStatePill subscribes to play AND pause events', () => {
+    const fn = playerJs.slice(playerJs.indexOf('function setupStatePill'),
+                              playerJs.indexOf('function flashStatePill'));
+    assert.match(fn, /addEventListener\(\s*['"]play['"]/);
+    assert.match(fn, /addEventListener\(\s*['"]pause['"]/);
+  });
+
+  it('flashStatePill swaps SVG visibility via style.display (Tizen-safe)', () => {
+    // Older Tizen WebViews don't honor the [hidden] attribute on inline SVG;
+    // toggling .hidden on the SVG element left both icons drawn on top of
+    // each other. style.display is universally honored.
+    const fn = playerJs.slice(playerJs.indexOf('function flashStatePill'),
+                              playerJs.indexOf('function flashStatePill') + 1000);
+    assert.match(fn, /statePillIconPlay\.style\.display/);
+    assert.match(fn, /statePillIconPause\.style\.display/);
+    // No textContent assignment — that would mean we regressed back to
+    // setting a unicode glyph instead of toggling the SVGs.
+    assert.ok(!/textContent\s*=/.test(fn),
+      'flashStatePill must not write textContent (use SVG toggle instead)');
+  });
+
+  it('first play event is suppressed (autoplay is not a viewer toggle)', () => {
+    // Without this, the pill flashes "▶" on every cold start. That's noise,
+    // not feedback — the viewer didn't press anything.
+    assert.match(playerJs, /firstPlayHandled/);
+    const fn = playerJs.slice(playerJs.indexOf('function setupStatePill'),
+                              playerJs.indexOf('function flashStatePill'));
+    assert.match(fn, /firstPlayHandled\s*=\s*true/);
+  });
+
+  it('pill auto-hides after a brief window (1000-2000ms)', () => {
+    assert.match(playerJs, /STATE_PILL_HIDE_MS\s*=\s*(\d+)/);
+    const m = playerJs.match(/STATE_PILL_HIDE_MS\s*=\s*(\d+)/);
+    assert.ok(Number(m[1]) >= 1000 && Number(m[1]) <= 2000,
+      'hide window should be 1-2s; longer feels stuck, shorter is unreadable');
+  });
+
+  it('pill animation is suppressed under prefers-reduced-motion', () => {
+    assert.match(css, /@media\s*\([^)]*prefers-reduced-motion[^)]*\)[^}]*\{[\s\S]*?\.state-pill[^}]*transform:\s*none/);
+  });
+});
+
+describe('tv-web polish: loading caption translated', () => {
+  it('loading caption uses data-i18n (not hard-coded English)', () => {
+    const html = fs.readFileSync(path.join(SRC, 'index.html'), 'utf8');
+    assert.match(html, /class=["']loading-caption["'][^>]+data-i18n=["']loadingCaption["']/);
+  });
+});
+
+describe('tv-web polish: audio-only feature fully removed', () => {
+  it('no audio-only chrome of any kind in HTML', () => {
+    // Tizen has no PiP or reliable background-audio for non-allowlisted
+    // apps, so an "audio only" mode on TV would just be a black screen
+    // with the same chrome — pointless. Removed from HTML, CSS, JS, and
+    // locales so the surface area stays minimal.
+    assert.ok(!/id=["']btn-audio-only["']/.test(html));
+    assert.ok(!/id=["']audio-face["']/.test(html));
+    assert.ok(!/class=["']audio-toggle/.test(html));
+    assert.ok(!/data-i18n(?:-aria)?=["']audioOnly/.test(html));
+  });
+
+  it('no audio-only CSS rules left behind', () => {
+    assert.ok(!/#audio-face/.test(css));
+    assert.ok(!/\.audio-(?:pulse|label|sub|toggle)/.test(css));
+    assert.ok(!/body\.audio-only/.test(css));
+  });
+
+  it('no audio-only locale keys left behind', () => {
+    const en = JSON.parse(fs.readFileSync(path.join(SRC, '_locales/en/messages.json'), 'utf8'));
+    const fa = JSON.parse(fs.readFileSync(path.join(SRC, '_locales/fa/messages.json'), 'utf8'));
+    assert.ok(!('audioOnlyLabel' in en));
+    assert.ok(!('audioOnlySub' in en));
+    assert.ok(!('audioOnlyLabel' in fa));
+    assert.ok(!('audioOnlySub' in fa));
   });
 });
 

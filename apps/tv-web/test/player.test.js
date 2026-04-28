@@ -49,7 +49,7 @@ describe('tv-web player.js', () => {
 
   it('teardown: destroy() clears every timer and the hls instance', () => {
     const fn = playerJs.slice(playerJs.indexOf('function destroy'),
-                              playerJs.indexOf('function destroy') + 600);
+                              playerJs.indexOf('function destroy') + 1500);
     assert.match(fn, /clearTimeout\(\s*retryTimer\s*\)/);
     assert.match(fn, /clearTimeout\(\s*brandingTimer\s*\)/);
     assert.match(fn, /clearTimeout\(\s*nativeTimeout\s*\)/);
@@ -86,21 +86,27 @@ describe('tv-web player.js', () => {
     assert.match(fn, /if\s*\(\s*!hls\s*\)\s*return/);
   });
 
-  it('audio-only mode: defined and bound to a keyboard key', () => {
-    assert.ok(playerJs.includes('toggleAudioOnly'));
-    assert.ok(playerJs.includes('setAudioOnly'));
-    assert.match(playerJs, /classList\.toggle\(\s*['"]audio-only['"]/);
-    // Step 2 routes keys through dispatchAction. The 'a' case must dispatch
-    // the 'audio' action (which calls toggleAudioOnly).
-    const kb = playerJs.slice(playerJs.indexOf('function setupKeyboard'),
-                              playerJs.indexOf('// --- Platform integration ---'));
-    assert.match(kb, /case\s+['"]a['"]\s*:[\s\S]*?dispatchAction\(\s*['"]audio['"]/,
-      "keyboard 'a' must dispatch the audio action");
+  it('audio-only mode is fully removed (no minimize/PiP path on Tizen)', () => {
+    // Tizen has no PiP and no reliable background-audio for non-allowlisted
+    // apps, so an "audio only" toggle on a TV would just be a black screen
+    // with the same chrome — pointless. Removed entirely; playback is
+    // video-only.
+    assert.ok(!/toggleAudioOnly|setAudioOnly|isAudioOnly/.test(playerJs),
+      'audio-only helpers must be fully removed');
+    assert.ok(!/audio-only/.test(playerJs), 'audio-only class hook must be gone');
+    assert.ok(!/dispatchAction\(\s*['"]audio['"]/.test(playerJs),
+      "no 'audio' action dispatch should remain");
+    assert.ok(!/id=["']audio-face["']/.test(indexHtml),
+      'audio-face overlay must be removed from HTML');
   });
 
-  it('volume changes are clamped to [0, 1] and unmute on adjustment', () => {
-    assert.match(playerJs, /Math\.max\(0,\s*Math\.min\(1/);
-    assert.match(playerJs, /video\.muted\s*=\s*false/);
+  it('no docked control bar in HTML (minimal UI: pill-only feedback)', () => {
+    // The bottom #control-bar / .ctrl buttons / volume bar were intentionally
+    // removed in favor of a transient state pill; ensure they don't return.
+    assert.ok(!/id=["']control-bar["']/.test(indexHtml), 'control bar must stay removed');
+    assert.ok(!/id=["']btn-play["']/.test(indexHtml), 'play button must stay removed');
+    assert.ok(!/id=["']btn-audio["']/.test(indexHtml), 'audio button must stay removed');
+    assert.ok(!/id=["']volume-bar["']/.test(indexHtml), 'volume bar must stay removed');
   });
 
   it('keyboard handler ignores events with modifier keys', () => {
@@ -115,5 +121,31 @@ describe('tv-web player.js', () => {
     assert.ok(back && Number(back[1]) <= 30);
     assert.match(cfg, /maxLiveSyncPlaybackRate\s*:/);
     assert.match(cfg, /maxBufferLength\s*:/);
+  });
+
+  it('hls catch-up rate is gentle enough to be inaudible (no audio glitch)', () => {
+    // 1.5× catch-up after a cold start produced an audible audio judder on
+    // Tizen — the audio engine pitch-shifts during the rate ramp. 1.1× is
+    // inaudible while still correcting drift.
+    const m = playerJs.match(/maxLiveSyncPlaybackRate\s*:\s*([\d.]+)/);
+    assert.ok(m, 'maxLiveSyncPlaybackRate must be set');
+    assert.ok(Number(m[1]) <= 1.2, 'rate above 1.2× is audible during catch-up');
+  });
+
+  it('hls lowLatencyMode is OFF (this is a TV channel, not a sportsbook)', () => {
+    // LL mode starts very close to the live edge; the catch-up window
+    // glitches audio on first segments. Channel TV doesn't need sub-second
+    // latency, so trade it for a smoother start.
+    const m = playerJs.match(/new\s+Hls\(\{([\s\S]*?)\}\)/);
+    const cfg = m[1];
+    assert.ok(!/lowLatencyMode\s*:\s*true/.test(cfg),
+      'lowLatencyMode must not be true on the TV build');
+  });
+
+  it('video element has no autoplay attribute (avoid double-play race)', () => {
+    // safePlay() fires from MANIFEST_PARSED; an autoplay attribute would
+    // start a second play() race that judders audio on Tizen.
+    assert.ok(!/<video[^>]+\bautoplay\b/.test(indexHtml),
+      'autoplay must be removed; player.js owns the play call');
   });
 });

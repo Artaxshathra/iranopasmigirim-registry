@@ -95,6 +95,13 @@ html, body {
   color: var(--fg);
 }
 
+.error-hint {
+  margin-top: 18px;
+  font-size: 20px;
+  color: var(--dim);
+  letter-spacing: 1px;
+}
+
 .spinner {
   width: 80px;
   height: 80px;
@@ -114,123 +121,6 @@ html, body {
 
 @media (prefers-reduced-motion: reduce) {
   .spinner { animation: none; }
-}
-
-/* --- Audio-only mode (TV equivalent of the extension's "radio mode") --- */
-
-#audio-face {
-  position: absolute;
-  inset: 0;
-  display: none;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  background: var(--bg);
-  z-index: 4;
-  pointer-events: none;
-}
-
-.audio-pulse {
-  width: 140px;
-  height: 140px;
-  border-radius: 50%;
-  background: var(--accent);
-  opacity: 0.85;
-  animation: audio-pulse 2s ease-in-out infinite;
-}
-
-@keyframes audio-pulse {
-  0%, 100% { transform: scale(1);    opacity: 0.85; }
-  50%      { transform: scale(1.15); opacity: 0.55; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .audio-pulse { animation: none; }
-}
-
-.audio-label {
-  margin-top: 36px;
-  font-size: 32px;
-  font-weight: 700;
-  letter-spacing: 4px;
-  text-transform: uppercase;
-}
-
-.audio-sub {
-  margin-top: 8px;
-  font-size: 22px;
-  color: var(--dim);
-  letter-spacing: 2px;
-}
-
-body.audio-only #video { visibility: hidden; }
-body.audio-only #audio-face { display: flex; }
-
-/* --- Control bar (D-pad navigable) ---
-   Hidden by default; shown on remote activity, auto-hidden after idle.
-   Sized for a 10-foot view: large hit targets, high-contrast focus ring. */
-
-#control-bar {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  display: flex;
-  justify-content: center;
-  gap: 24px;
-  padding: 32px 48px 48px;
-  background: linear-gradient(to top, rgba(0, 0, 0, 0.85), rgba(0, 0, 0, 0));
-  z-index: 8;
-  opacity: 1;
-  transition: opacity 0.25s ease;
-}
-
-#control-bar[hidden] {
-  /* Override [hidden]{display:none} so the fade-out transition can play.
-     JS toggles the .hiding class first, then sets [hidden] after the
-     transition ends. */
-  display: flex !important;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.ctrl {
-  display: inline-flex;
-  align-items: center;
-  gap: 14px;
-  min-width: 220px;
-  padding: 18px 28px;
-  font: inherit;
-  font-size: 24px;
-  font-weight: 600;
-  color: var(--fg);
-  background: rgba(30, 30, 30, 0.85);
-  border: 3px solid transparent;
-  border-radius: 12px;
-  cursor: pointer;
-  /* Disable native focus ring — we draw our own, sized for a 10-foot view. */
-  outline: none;
-}
-
-.ctrl:focus,
-.ctrl:focus-visible {
-  border-color: var(--accent);
-  background: rgba(60, 20, 28, 0.95);
-  box-shadow: 0 0 0 4px rgba(196, 30, 58, 0.35);
-}
-
-.ctrl[aria-pressed="true"] {
-  background: var(--accent);
-  color: #fff;
-}
-
-.ctrl-icon {
-  font-size: 28px;
-  line-height: 1;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  #control-bar { transition: none; }
 }
 
 /* --- HTML splash (bridges platform splash → first frame) ---
@@ -303,6 +193,14 @@ body.audio-only #audio-face { display: flex; }
 
 .live-badge.dim { opacity: 0.35; }
 
+/* .stale: stream is buffering/stalled, so the badge stays visible but the
+   dot stops pulsing and goes grey. The viewer should never see a pulsing
+   red "LIVE" dot while the picture is frozen — that's a lie. */
+.live-badge.stale .live-dot {
+  background: var(--dim);
+  animation: none;
+}
+
 .live-dot {
   width: 12px;
   height: 12px;
@@ -340,7 +238,52 @@ body.audio-only #audio-face { display: flex; }
 html[dir="rtl"] .live-badge { left: auto; right: 36px; }
 html[dir="rtl"] .branding   { right: auto; left: 36px; }
 html[dir="rtl"] .splash-name,
-html[dir="rtl"] .splash-sub,
-html[dir="rtl"] .audio-label,
-html[dir="rtl"] .audio-sub,
-html[dir="rtl"] .ctrl-label { letter-spacing: 0; }
+html[dir="rtl"] .splash-sub { letter-spacing: 0; }
+
+/* --- Transient state pill ---
+   A glassy badge that flashes briefly when play/pause toggles. Centered so
+   the viewer's eye finds it without scanning. Frosted background + thin
+   border so it reads cleanly over both bright and dark video frames. */
+
+.state-pill {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 132px;
+  height: 132px;
+  margin: -66px 0 0 -66px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(20, 20, 22, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 50%;
+  /* Frosted glass — degrades to a flat translucent disc on TV WebViews
+     that don't support backdrop-filter (older Tizen). */
+  -webkit-backdrop-filter: blur(18px) saturate(1.2);
+  backdrop-filter: blur(18px) saturate(1.2);
+  z-index: 9;
+  pointer-events: none;
+  opacity: 0;
+  transform: scale(0.85);
+  transition: opacity 0.18s ease, transform 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+
+.state-pill.show {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.state-pill-icon {
+  width: 64px;
+  height: 64px;
+  color: var(--fg);
+  /* Subtle drop so the glyph reads on bright frames without a heavy bg. */
+  filter: drop-shadow(0 2px 12px rgba(0, 0, 0, 0.45));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .state-pill { transition: opacity 0.12s ease; transform: none; }
+  .state-pill.show { transform: none; }
+}
+

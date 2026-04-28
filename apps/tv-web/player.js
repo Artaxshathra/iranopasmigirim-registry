@@ -23,14 +23,22 @@ const RETRY_DELAY_MS = 2000;
 const COLD_RETRY_DELAY_MS = 30000;
 const BRANDING_FADE_DELAY_MS = 5000;
 const NATIVE_TIMEOUT_MS = 20000;
-// Idle-hide for the control bar. Longer than a mouse cursor would warrant
-// because remote presses are slower and viewers expect the chrome to linger.
-const IDLE_HIDE_MS = 8000;
 // Splash stays on screen until first frame, but cap the wait so a broken
 // stream still surfaces the loading/error overlay instead of black.
 const SPLASH_MAX_MS = 8000;
 // LIVE badge fades to dim once the viewer has settled in (mirrors branding).
 const LIVE_BADGE_DIM_DELAY_MS = 12000;
+// Buffering overlay debounce: brief stalls (a single dropped fragment) self-
+// recover in <500 ms; only show the spinner if the stall persists. Without
+// this, the overlay flickers on every minor jitter and feels broken.
+const BUFFERING_DEBOUNCE_MS = 600;
+// Manual retry rate-limit: keeps a viewer mashing OK from hammering the
+// origin during an outage. One real retry per window; intermediate presses
+// are no-ops with no visible change (already showing "Retrying…").
+const MANUAL_RETRY_COOLDOWN_MS = 3000;
+// Transient state pill: visible for this long after a play/pause toggle.
+// Long enough to register, short enough to clear the picture quickly.
+const STATE_PILL_HIDE_MS = 1400;
 
 const video = document.getElementById('video');
 const overlayError = document.getElementById('overlay-error');
@@ -39,9 +47,9 @@ const overlayLoading = document.getElementById('overlay-loading');
 const brandingEl = document.getElementById('branding');
 const liveBadge = document.getElementById('live-badge');
 const splashEl = document.getElementById('splash');
-const controlBar = document.getElementById('control-bar');
-const btnPlay = document.getElementById('btn-play');
-const btnAudio = document.getElementById('btn-audio');
+const statePill = document.getElementById('state-pill');
+const statePillIconPlay = document.getElementById('state-pill-icon-play');
+const statePillIconPause = document.getElementById('state-pill-icon-pause');
 
 let hls = null;
 let retryTimer = null;
@@ -50,10 +58,14 @@ let brandingTimer = null;
 let liveDimTimer = null;
 let splashTimer = null;
 let nativeTimeout = null;
-let idleTimer = null;
+let bufferingTimer = null;
+let statePillTimer = null;
 let fatalRetries = 0;
 let mediaRetries = 0;
-let coldRetrying = false;
+let lastManualRetryAt = 0;
+// Suppress the very first play event's pill — autoplay-on-first-frame is
+// not a state change the viewer initiated; flashing "▶" at startup is noise.
+let firstPlayHandled = false;
 
 // --- i18n ---
 //
@@ -68,17 +80,12 @@ const I18N = {
 };
 
 function pickLocale() {
-  // Prefer Tizen's per-app preference when available (set in TV settings),
-  // then the browser's navigator.language. Strip region (fa-IR → fa).
-  let lang = 'en';
-  try {
-    if (typeof tizen !== 'undefined' && tizen.systeminfo) {
-      // Synchronous locale read isn't exposed; fall back to navigator.
-    }
-  } catch (_) { /* not on Tizen */ }
+  // Tizen's SystemInfo.locale is async-only; we'd have to defer the whole
+  // init() chain to honor it. Stick with navigator.language (which Tizen
+  // populates from the TV's language setting on app launch). Strip region
+  // (fa-IR / fa-AF → fa).
   const nav = (navigator.language || 'en').toLowerCase();
-  if (nav.startsWith('fa')) lang = 'fa';
-  return lang;
+  return nav.startsWith('fa') ? 'fa' : 'en';
 }
 
 function applyTranslations() {
@@ -122,6 +129,8 @@ function init() {
   setupI18n(function () {
     setupSplash();
     setupBadge();
+    setupBuffering();
+    setupStatePill();
     if (typeof Hls !== 'undefined' && Hls.isSupported()) {
       loadHls(STREAM_URL);
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
@@ -132,7 +141,6 @@ function init() {
       return;
     }
     setupKeyboard();
-    setupControlBar();
     setupBrandingFade();
     registerPlatformKeys();
   });
@@ -150,18 +158,24 @@ function loadHls(url) {
     // Worker disabled to mirror the extension's CSP-pinned posture: keeps
     // a single audited execution path for hls.js across both surfaces.
     enableWorker: false,
-    lowLatencyMode: true,
-    fragLoadingMaxRetry: 30,
-    fragLoadingMaxRetryTimeout: 15000,
-    manifestLoadingMaxRetry: 30,
-    manifestLoadingMaxRetryTimeout: 15000,
-    levelLoadingMaxRetry: 30,
-    levelLoadingMaxRetryTimeout: 15000,
+    // No lowLatencyMode: this is a TV channel, not a sportsbook. LL mode
+    // starts close to the live edge and rate-ramps to catch up, which
+    // produced an audible audio judder during the first ~3 s on Tizen.
+    // Conservative segment-based timing eliminates the glitch.
+    fragLoadingMaxRetry: 6,
+    fragLoadingMaxRetryTimeout: 8000,
+    manifestLoadingMaxRetry: 6,
+    manifestLoadingMaxRetryTimeout: 8000,
+    levelLoadingMaxRetry: 6,
+    levelLoadingMaxRetryTimeout: 8000,
     startFragPrefetch: true,
     backBufferLength: 8,
-    maxBufferLength: 10,
-    liveSyncDurationCount: 3,
-    maxLiveSyncPlaybackRate: 1.5,
+    maxBufferLength: 12,
+    // 4 segments of headroom: weak TV SoCs occasionally hiccup on a single
+    // fragment; 3 was enough to start but left no slack for recovery.
+    liveSyncDurationCount: 4,
+    // Soft catch-up: 1.1× is inaudible to viewers but still corrects drift.
+    maxLiveSyncPlaybackRate: 1.1,
   });
 
   hls.loadSource(url);
@@ -170,6 +184,19 @@ function loadHls(url) {
   hls.on(Hls.Events.MANIFEST_PARSED, function () {
     safePlay();
     hideLoading();
+  });
+
+  // Force live edge on first level load. Without this, hls.js can start a
+  // few segments back from live (the manifest's EXT-X-START or the head of
+  // the live window), which surfaced as "showing yesterday's content for a
+  // few seconds before catching up" on cold start.
+  hls.on(Hls.Events.LEVEL_LOADED, function (_e, data) {
+    if (!data || !data.details || !data.details.live) return;
+    const edge = hls.liveSyncPosition;
+    if (typeof edge === 'number' && isFinite(edge) &&
+        Math.abs(video.currentTime - edge) > 4) {
+      try { video.currentTime = edge; } catch (_) {}
+    }
   });
 
   hls.on(Hls.Events.ERROR, function (_event, data) {
@@ -208,7 +235,6 @@ function loadHls(url) {
     hideLoading();
     fatalRetries = 0;
     mediaRetries = 0;
-    coldRetrying = false;
     if (coldRetryTimer) { clearTimeout(coldRetryTimer); coldRetryTimer = null; }
   });
 }
@@ -226,7 +252,6 @@ function scheduleRetry(delay) {
 // TV is offline). Show a "Stream offline" state and slow-poll. Reentrant:
 // each tick re-checks; FRAG_LOADED clears the timer when the stream returns.
 function enterColdRetry() {
-  coldRetrying = true;
   showError(t('errOffline', 'Stream is offline. Retrying…'));
   scheduleColdRetry();
 }
@@ -266,7 +291,18 @@ function loadNative(url) {
   }, { once: true });
 }
 
-function safePlay() { video.play().catch(function () {}); }
+function safePlay() {
+  // Swallow the rejection so an autoplay-blocked attempt doesn't bubble
+  // an uncaught promise — but still log it. On a TV the console isn't
+  // visible to the viewer, but it's the only signal we get when the
+  // platform refuses to start playback (rare; usually decoder startup).
+  const p = video.play();
+  if (p && typeof p.catch === 'function') {
+    p.catch(function (err) {
+      try { console.warn('[player] video.play() rejected:', err && err.message || err); } catch (_) {}
+    });
+  }
+}
 
 // --- Splash ---
 //
@@ -288,182 +324,173 @@ function hideSplash() {
 }
 
 // --- LIVE badge ---
-// Visible on first frame, then dims so it doesn't compete with the picture.
+//
+// Hidden until we have proof we're actually live: 'playing' has fired AND
+// hls.js has loaded a fragment. Goes .stale on 'waiting' / errors so the
+// pulsing red dot is never on screen while the picture is frozen — that
+// would lie to the viewer. Returns to live state on the next 'playing'.
+// After a settle delay, the badge dims to ambient so it doesn't compete
+// with the picture (still visible, just no longer attention-grabbing).
+
+function showLiveBadge() {
+  if (!liveBadge) return;
+  liveBadge.hidden = false;
+  liveBadge.classList.remove('stale');
+}
+
+function markBadgeStale() {
+  if (!liveBadge || liveBadge.hidden) return;
+  liveBadge.classList.add('stale');
+}
 
 function setupBadge() {
   if (!liveBadge) return;
+  // Reveal on first 'playing' AND tighten dim after a settle delay.
   video.addEventListener('playing', function () {
+    showLiveBadge();
     if (liveDimTimer) clearTimeout(liveDimTimer);
     liveDimTimer = setTimeout(function () {
       liveDimTimer = null;
       liveBadge.classList.add('dim');
     }, LIVE_BADGE_DIM_DELAY_MS);
-  }, { once: true });
+  });
+  // 'waiting' = mid-stream stall. Don't fire dot while frozen.
+  video.addEventListener('waiting', markBadgeStale);
 }
 
-// --- Audio-only mode (TV equivalent of the extension's "radio mode") ---
+// --- Buffering indicator ---
+//
+// Mid-stream stalls (a TV briefly losing Wi-Fi, a single fragment that takes
+// longer than the buffer to arrive) fire a 'waiting' event. Show the loading
+// overlay so the viewer knows the picture isn't broken — but debounce it so
+// sub-second hiccups don't flicker the spinner. 'playing' clears it.
 
-function isAudioOnly() { return document.body.classList.contains('audio-only'); }
-
-function setAudioOnly(on) {
-  document.body.classList.toggle('audio-only', on);
-  video.setAttribute('aria-label', on ? 'INRTV live audio' : 'INRTV live stream');
-  btnAudio.setAttribute('aria-pressed', on ? 'true' : 'false');
+function setupBuffering() {
+  video.addEventListener('waiting', function () {
+    // Don't show buffering UI while an error overlay is up — the error
+    // takes precedence and showing both is confusing.
+    if (!overlayError.hidden) return;
+    if (bufferingTimer) clearTimeout(bufferingTimer);
+    bufferingTimer = setTimeout(function () {
+      bufferingTimer = null;
+      overlayLoading.hidden = false;
+    }, BUFFERING_DEBOUNCE_MS);
+  });
+  video.addEventListener('playing', function () {
+    if (bufferingTimer) { clearTimeout(bufferingTimer); bufferingTimer = null; }
+    overlayLoading.hidden = true;
+  });
 }
-
-function toggleAudioOnly() { setAudioOnly(!isAudioOnly()); }
 
 function togglePlay() {
   if (video.paused) safePlay();
   else video.pause();
 }
 
-function adjustVolume(delta) {
-  video.volume = Math.max(0, Math.min(1, video.volume + delta));
-  if (video.muted) video.muted = false;
+// Manual retry from the error overlay. Rate-limited so a viewer mashing OK
+// during an outage doesn't translate to a flood of startLoad() calls.
+function manualRetry() {
+  const now = Date.now();
+  if (now - lastManualRetryAt < MANUAL_RETRY_COOLDOWN_MS) return;
+  lastManualRetryAt = now;
+  fatalRetries = 0;
+  mediaRetries = 0;
+  if (coldRetryTimer) { clearTimeout(coldRetryTimer); coldRetryTimer = null; }
+  if (retryTimer)     { clearTimeout(retryTimer);     retryTimer = null; }
+  showError(t('errNetwork', 'Reconnecting…'));
+  if (hls) hls.startLoad();
+  else if (video.canPlayType('application/vnd.apple.mpegurl')) loadNative(STREAM_URL);
 }
 
-// --- Control bar (D-pad navigable) ---
+// --- Transient state pill ---
 //
-// Hidden by default. Any remote activity reveals it and resets the idle
-// timer. Pressing Back while it's visible just hides it; pressing Back
-// while it's already hidden falls through to the platform-exit handler.
+// A glassy badge that flashes for ~1.4 s when play/pause toggles via the
+// remote's hardware key. There is no docked control bar; the pill is pure
+// feedback that the viewer's press registered. The first 'play' event
+// (autoplay on cold start) is suppressed — that's not a viewer-initiated
+// state change, just the app coming up.
 
-function isBarVisible() { return !controlBar.hidden; }
-
-function showBar() {
-  if (controlBar.hidden) {
-    controlBar.hidden = false;
-    // First reveal needs an explicit focus so D-pad input lands somewhere.
-    if (!controlBar.contains(document.activeElement)) btnPlay.focus();
-  }
-  resetIdle();
+function setupStatePill() {
+  if (!statePill || !statePillIconPlay || !statePillIconPause) return;
+  video.addEventListener('play', function () {
+    if (!firstPlayHandled) { firstPlayHandled = true; return; }
+    flashStatePill('play');
+  });
+  video.addEventListener('pause', function () {
+    if (!firstPlayHandled) return;
+    flashStatePill('pause');
+  });
 }
 
-function hideBar() {
-  controlBar.hidden = true;
-  if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
-  // Move focus off the now-hidden bar so the next D-pad press triggers
-  // showBar() cleanly instead of activating an invisible button.
-  if (controlBar.contains(document.activeElement)) document.activeElement.blur();
-}
-
-function resetIdle() {
-  if (idleTimer) clearTimeout(idleTimer);
-  idleTimer = setTimeout(hideBar, IDLE_HIDE_MS);
-}
-
-function moveFocus(dir) {
-  const buttons = [btnPlay, btnAudio];
-  const i = buttons.indexOf(document.activeElement);
-  const next = i < 0 ? 0 : (i + dir + buttons.length) % buttons.length;
-  buttons[next].focus();
-}
-
-function activateFocused() {
-  const el = document.activeElement;
-  if (!controlBar.contains(el)) return;
-  switch (el.dataset.action) {
-    case 'play':  togglePlay(); break;
-    case 'audio': toggleAudioOnly(); break;
-  }
-}
-
-function setupControlBar() {
-  // Reflect playing/paused state into the play button label so the chrome
-  // doesn't lie about what pressing it will do.
-  function syncPlayButton() {
-    const playing = !video.paused && !video.ended;
-    btnPlay.querySelector('.ctrl-icon').textContent = playing ? '⏸' : '▶';
-    const label = playing ? t('btnPause', 'Pause') : t('btnPlay', 'Play');
-    btnPlay.querySelector('.ctrl-label').textContent = label;
-    btnPlay.setAttribute('aria-label', label);
-  }
-  // Localize the audio-only button label too (initial render is English).
-  btnAudio.querySelector('.ctrl-label').textContent = t('btnAudioOnly', 'Audio only');
-  btnAudio.setAttribute('aria-label', t('btnAudioOnly', 'Audio only'));
-  video.addEventListener('play', syncPlayButton);
-  video.addEventListener('pause', syncPlayButton);
-  syncPlayButton();
+function flashStatePill(which) {
+  if (!statePill || !statePillIconPlay || !statePillIconPause) return;
+  // Swap which SVG is visible — vector glyphs stay crisp at any TV scale,
+  // unlike font-glyph play/pause characters which render fuzzy on Tizen.
+  // Use style.display rather than the [hidden] attribute: older Tizen
+  // WebViews don't apply the UA's `[hidden]{display:none}` rule to inline
+  // SVG elements, so both icons would render on top of each other.
+  const showPlay = which === 'play';
+  statePillIconPlay.style.display = showPlay ? '' : 'none';
+  statePillIconPause.style.display = showPlay ? 'none' : '';
+  // Re-trigger the entry animation by toggling the class off-then-on across
+  // a frame boundary; without the reflow the browser collapses both writes.
+  statePill.classList.remove('show');
+  statePill.hidden = false;
+  // eslint-disable-next-line no-void
+  void statePill.offsetWidth; // force reflow so the next class add re-plays the transition
+  statePill.classList.add('show');
+  if (statePillTimer) clearTimeout(statePillTimer);
+  statePillTimer = setTimeout(function () {
+    statePillTimer = null;
+    statePill.classList.remove('show');
+    // Wait for the fade-out transition to finish before fully hiding so
+    // [hidden]{display:none} doesn't snap the pill out of view mid-fade.
+    setTimeout(function () { if (statePill) statePill.hidden = true; }, 300);
+  }, STATE_PILL_HIDE_MS);
 }
 
 // --- Keyboard / D-pad ---
 //
-// Two-layer input handling:
-//   1. Named keys (e.key)        — normal browsers, dev keyboards.
-//   2. Numeric keyCode mapping   — Tizen/webOS remotes whose keys arrive
-//                                  without a meaningful e.key.
-// Both layers feed the same action handler, so the app behaves identically
-// on a laptop and on a TV remote.
-
-// Tizen and webOS share most W3C-standard remote codes; the Back key differs
-// slightly across firmware revisions, so we accept every code reported in the
-// wild. https://developer.samsung.com/smarttv/develop/guides/user-interaction/keyboardime.html
+// Minimal input model — there is no docked control bar, so the keyboard
+// handler is a thin map from keys/remote-codes to actions. The TV platform
+// owns volume and channel; we only handle play/pause, back/exit, and
+// Enter-to-retry on the error overlay.
+//
+// Two layers: named keys (browser/dev keyboards) and numeric Tizen/webOS
+// remote codes whose e.key is not meaningful.
+// https://developer.samsung.com/smarttv/develop/guides/user-interaction/keyboardime.html
 // https://webostv.developer.lge.com/develop/references/magic-remote
 const REMOTE_KEYCODES = {
-  // Media transport
-  415: 'play',         // VK_PLAY
-  19:  'pause',        // VK_PAUSE
-  413: 'stop',         // VK_STOP (ignored — live stream, no stop concept)
-  10252: 'playpause',  // some Tizen remotes report a combined play/pause
-  // Back / exit. 461 = Tizen VK_BACK, 10009 = webOS Back, 8 = Backspace fallback.
-  461:   'back',
-  10009: 'back',
-  8:     'back',
+  415: 'playpause',    // VK_PLAY → treat play and play/pause as one toggle
+  19:  'playpause',    // VK_PAUSE → same toggle (TV remotes vary)
+  10252: 'playpause',  // combined play/pause on some Tizen remotes
+  413: 'stop',         // VK_STOP (live stream → exit)
+  461:   'back',       // Tizen VK_BACK
+  10009: 'back',       // webOS Back
+  8:     'back',       // Backspace fallback for dev
 };
 
 function dispatchAction(action, e) {
   switch (action) {
     case 'playpause':
-    case 'play':
-    case 'pause':
       togglePlay();
-      showBar();
-      break;
-    case 'audio':
-      toggleAudioOnly();
-      showBar();
-      break;
-    case 'volup':
-      adjustVolume(0.1);
-      break;
-    case 'voldown':
-      adjustVolume(-0.1);
-      break;
-    case 'left':
-      if (isBarVisible()) { moveFocus(-1); resetIdle(); }
-      else showBar();
-      break;
-    case 'right':
-      if (isBarVisible()) { moveFocus(1); resetIdle(); }
-      else showBar();
-      break;
-    case 'up':
-      if (isBarVisible()) resetIdle();
-      else { adjustVolume(0.1); showBar(); }
-      break;
-    case 'down':
-      if (isBarVisible()) resetIdle();
-      else { adjustVolume(-0.1); showBar(); }
       break;
     case 'enter':
-      if (isBarVisible()) { activateFocused(); resetIdle(); }
-      else showBar();
+      // Error overlay takes precedence: Enter is the documented retry key.
+      // Without this, a stuck viewer has no escape from "Stream is offline"
+      // besides power-cycling the TV or restarting the app. With no chrome
+      // to activate elsewhere, Enter on a normal screen is a no-op.
+      if (!overlayError.hidden) manualRetry();
       break;
     case 'back':
-      // Bar visible: dismiss it (consume the event so the platform doesn't
-      // exit). Bar hidden: fall through to the platform exit handler so the
-      // user can leave the app from the player surface, the way TV viewers
-      // expect Back to behave.
-      if (isBarVisible()) {
-        hideBar();
-        if (e) e.preventDefault();
-      } else {
-        platformExit();
-      }
+      // Always consume Back: otherwise on Tizen the platform's own Back
+      // handler also fires and the app exits twice (once via platformExit,
+      // once via the platform navigation). With no chrome to dismiss, Back
+      // always means "leave the app."
+      if (e) e.preventDefault();
+      platformExit();
       break;
     case 'stop':
-      // Live stream — there is nothing to "stop", so treat it as exit.
       platformExit();
       break;
   }
@@ -473,8 +500,8 @@ function setupKeyboard() {
   document.addEventListener('keydown', function (e) {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
 
-    // Layer 2: numeric remote codes. Check first so a Tizen/webOS Back
-    // press doesn't accidentally fall through the e.key switch as ''.
+    // Layer 2: numeric remote codes. Check first so a Tizen/webOS Back press
+    // doesn't accidentally fall through the e.key switch as ''.
     const remoteAction = REMOTE_KEYCODES[e.keyCode];
     if (remoteAction) {
       dispatchAction(remoteAction, e);
@@ -484,29 +511,13 @@ function setupKeyboard() {
     // Layer 1: named keys for browser/dev keyboards.
     switch (e.key) {
       case ' ':
-      case 'Enter':
       case 'k':
         e.preventDefault();
+        dispatchAction('playpause', e);
+        break;
+      case 'Enter':
+        e.preventDefault();
         dispatchAction('enter', e);
-        break;
-      case 'a':
-        dispatchAction('audio', e);
-        break;
-      case 'ArrowUp':
-        e.preventDefault();
-        dispatchAction('up', e);
-        break;
-      case 'ArrowDown':
-        e.preventDefault();
-        dispatchAction('down', e);
-        break;
-      case 'ArrowLeft':
-        e.preventDefault();
-        dispatchAction('left', e);
-        break;
-      case 'ArrowRight':
-        e.preventDefault();
-        dispatchAction('right', e);
         break;
       case 'Backspace':
       case 'Escape':
@@ -573,6 +584,8 @@ function showError(msg) {
   hideLoading();
   errorMsg.textContent = msg;
   overlayError.hidden = false;
+  // Any error means we're not actually live anymore — stop pulsing red.
+  markBadgeStale();
 }
 
 function hideError() { overlayError.hidden = true; }
@@ -583,14 +596,15 @@ function hideLoading() { overlayLoading.hidden = true; }
 // holds a native resource must be released here.
 
 function destroy() {
-  if (retryTimer)     { clearTimeout(retryTimer);     retryTimer = null; }
-  if (coldRetryTimer) { clearTimeout(coldRetryTimer); coldRetryTimer = null; }
-  if (brandingTimer)  { clearTimeout(brandingTimer);  brandingTimer = null; }
-  if (liveDimTimer)   { clearTimeout(liveDimTimer);   liveDimTimer = null; }
-  if (splashTimer)    { clearTimeout(splashTimer);    splashTimer = null; }
-  if (nativeTimeout)  { clearTimeout(nativeTimeout);  nativeTimeout = null; }
-  if (idleTimer)      { clearTimeout(idleTimer);      idleTimer = null; }
-  if (hls)            { hls.destroy(); hls = null; }
+  if (retryTimer)      { clearTimeout(retryTimer);      retryTimer = null; }
+  if (coldRetryTimer)  { clearTimeout(coldRetryTimer);  coldRetryTimer = null; }
+  if (brandingTimer)   { clearTimeout(brandingTimer);   brandingTimer = null; }
+  if (liveDimTimer)    { clearTimeout(liveDimTimer);    liveDimTimer = null; }
+  if (splashTimer)     { clearTimeout(splashTimer);     splashTimer = null; }
+  if (nativeTimeout)   { clearTimeout(nativeTimeout);   nativeTimeout = null; }
+  if (bufferingTimer)  { clearTimeout(bufferingTimer);  bufferingTimer = null; }
+  if (statePillTimer)  { clearTimeout(statePillTimer);  statePillTimer = null; }
+  if (hls)             { hls.destroy(); hls = null; }
 }
 
 window.addEventListener('pagehide', destroy);

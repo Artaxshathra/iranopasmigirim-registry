@@ -5,22 +5,23 @@
   <!-- frame-ancestors is intentionally omitted: it is ignored in <meta> form
        (browsers warn about it). On Tizen/webOS there is no parent frame; on
        the web we accept that the directive can only be enforced via header. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src https://hls.irannrtv.live; media-src https://hls.irannrtv.live blob:; object-src 'none'; base-uri 'self'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://hls.irannrtv.live; media-src https://hls.irannrtv.live blob:; object-src 'none'; base-uri 'self'; form-action 'none'; worker-src 'none'; frame-src 'none'">
   <title>INRTV Live</title>
   <link rel="stylesheet" href="player.css">
 </head>
 <body>
   <div id="player-container">
     <div id="video-area">
-      <video id="video" autoplay aria-label="INRTV live stream"></video>
+      <!-- No autoplay attribute: player.js calls safePlay() from MANIFEST_PARSED.
+           Two play paths (browser autoplay + JS) caused a brief audio judder on
+           Tizen during the live-edge ramp; one path is cleaner. -->
+      <video id="video" aria-label="INRTV live stream"></video>
 
-      <div id="audio-face" aria-hidden="true">
-        <div class="audio-pulse"></div>
-        <p class="audio-label" data-i18n="audioOnlyLabel">Audio only</p>
-        <p class="audio-sub" data-i18n="audioOnlySub">INRTV · Live</p>
-      </div>
-
-      <div id="live-badge" class="live-badge" aria-hidden="true">
+      <!-- LIVE badge: hidden until we have proof we're actually at the live
+           edge (FRAG_LOADED + 'playing' + within liveSyncPosition). Goes
+           grey/.stale on stall so the dot is never red while the picture
+           is frozen. Lying about live state is worse than not showing it. -->
+      <div id="live-badge" class="live-badge" hidden aria-hidden="true">
         <span class="live-dot"></span>
         <span class="live-text" data-i18n="liveBadge">LIVE</span>
         <span class="live-channel">INRTV</span>
@@ -40,23 +41,33 @@
 
     <div id="overlay-error" hidden role="status" aria-live="polite">
       <p id="error-msg">Connection lost. Retrying...</p>
+      <!-- Retry hint: viewers stuck on an error need an explicit way out
+           besides "restart the app". Enter triggers a manual retry; the
+           hint is hidden until the error overlay is shown. -->
+      <p id="error-hint" class="error-hint" data-i18n="errRetryHint">Press OK to retry</p>
     </div>
 
     <div id="overlay-loading" role="status" aria-live="polite">
       <div class="spinner"></div>
-      <p class="loading-caption">Connecting…</p>
+      <p class="loading-caption" data-i18n="loadingCaption">Connecting…</p>
     </div>
 
-    <nav id="control-bar" hidden aria-label="Player controls">
-      <button id="btn-play" type="button" class="ctrl" data-action="play" aria-label="Play or pause">
-        <span class="ctrl-icon" aria-hidden="true">▶</span>
-        <span class="ctrl-label">Play</span>
-      </button>
-      <button id="btn-audio" type="button" class="ctrl" data-action="audio" aria-pressed="false" aria-label="Toggle audio-only mode">
-        <span class="ctrl-icon" aria-hidden="true">♪</span>
-        <span class="ctrl-label">Audio only</span>
-      </button>
-    </nav>
+    <!-- Transient state pill: a glassy badge that flashes for ~1.5 s when
+         play/pause toggles via the remote. The hardware play/pause key on
+         the TV remote is the only way to trigger this — there is no docked
+         control bar; the pill is pure feedback that the press registered.
+         Two SVGs share the slot; player.js toggles their visibility so we
+         get crisp vector glyphs at any TV scale instead of font-glyph fuzz. -->
+    <div id="state-pill" class="state-pill" hidden aria-hidden="true">
+      <svg id="state-pill-icon-play" class="state-pill-icon" viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+        <path d="M22 14 L48 32 L22 50 Z" fill="currentColor"/>
+      </svg>
+      <svg id="state-pill-icon-pause" class="state-pill-icon" viewBox="0 0 64 64" aria-hidden="true" focusable="false" style="display:none">
+        <rect x="20" y="14" width="8" height="36" rx="2" fill="currentColor"/>
+        <rect x="36" y="14" width="8" height="36" rx="2" fill="currentColor"/>
+      </svg>
+    </div>
+
   </div>
 
   <script src="lib/hls.min.js"></script>

@@ -55,8 +55,13 @@
        playback dies silently with a console-only refusal. The Tizen-namespaced
        element is the only CSP the platform actually enforces. Mirror the meta
        tag directives so the two surfaces stay aligned. -->
-  <tizen:content-security-policy>default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src https://hls.irannrtv.live; media-src https://hls.irannrtv.live blob:; object-src 'none'; base-uri 'self'; form-action 'none'</tizen:content-security-policy>
+  <tizen:content-security-policy>default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://hls.irannrtv.live; media-src https://hls.irannrtv.live blob:; object-src 'none'; base-uri 'self'; form-action 'none'; worker-src 'none'; frame-src 'none'</tizen:content-security-policy>
   <access origin="https://hls.irannrtv.live" subdomains="false"/>
   <tizen:allow-navigation>https://hls.irannrtv.live</tizen:allow-navigation>
+  <!-- tv.inputdevice: required for tizen.tvinputdevice.registerKey() to
+       capture MediaPlay/Pause/PlayPause/Stop from the remote. Without this
+       privilege the registrations silently no-op on real hardware (the
+       transport keys still fire on the system, not the app). -->
+  <tizen:privilege name="http://tizen.org/privilege/tv.inputdevice"/>
   <feature name="http://tizen.org/feature/screen.size.normal.1080.1920"/>
 </widget>
