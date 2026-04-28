@@ -220,6 +220,20 @@ html, body {
   color: var(--dim);
 }
 
+/* Slow-connection subtitle: dim, smaller, sits inside the LIVE badge. The
+   element is appended/removed by JS only when warranted, so no rule for an
+   "off" state is needed — it simply isn't in the DOM when not slow. */
+.live-slow {
+  margin-left: 8px;
+  padding-left: 10px;
+  border-left: 1px solid rgba(255, 255, 255, 0.18);
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: 1px;
+  color: var(--dim);
+  text-transform: none;
+}
+
 @keyframes live-pulse {
   0%, 100% { opacity: 1;   transform: scale(1); }
   50%      { opacity: 0.4; transform: scale(0.85); }
@@ -236,6 +250,11 @@ html, body {
    appropriate side. */
 
 html[dir="rtl"] .live-badge { left: auto; right: 36px; }
+html[dir="rtl"] .live-slow {
+  margin-left: 0; padding-left: 0; border-left: none;
+  margin-right: 8px; padding-right: 10px;
+  border-right: 1px solid rgba(255, 255, 255, 0.18);
+}
 html[dir="rtl"] .branding   { right: auto; left: 36px; }
 html[dir="rtl"] .splash-name,
 html[dir="rtl"] .splash-sub { letter-spacing: 0; }

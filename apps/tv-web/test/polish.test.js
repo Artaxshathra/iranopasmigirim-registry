@@ -91,6 +91,124 @@ describe('tv-web polish: LIVE badge', () => {
   });
 });
 
+describe('tv-web polish: resume on return (wake-from-sleep / app switch)', () => {
+  it('tracks the wall-clock time of the last loaded fragment', () => {
+    // Without this, maybeResume() can't tell stale from fresh.
+    assert.match(playerJs, /lastFragLoadedAt/);
+    const fragHandler = playerJs.slice(playerJs.indexOf('Hls.Events.FRAG_LOADED'),
+                                       playerJs.indexOf('Hls.Events.FRAG_LOADED') + 600);
+    assert.match(fragHandler, /lastFragLoadedAt\s*=\s*Date\.now\(\)/);
+  });
+
+  it('maybeResume forces a reload when the player is stale', () => {
+    const fn = playerJs.slice(playerJs.indexOf('function maybeResume'),
+                              playerJs.indexOf('function setupResume'));
+    assert.match(fn, /RESUME_STALENESS_MS/);
+    // -1 tells hls.js to pick liveSyncPosition; LEVEL_LOADED then snaps
+    // currentTime if needed. Plain startLoad() would resume from the last
+    // play position, which is exactly what we're trying to avoid.
+    assert.match(fn, /startLoad\(\s*-1\s*\)/);
+    assert.match(fn, /stopLoad\(\)/);
+  });
+
+  it('setupResume wires pageshow + visibilitychange', () => {
+    // pageshow fires on BFCache restore + wake-from-sleep on TV WebViews.
+    // visibilitychange fires on app-switch return. Both paths matter.
+    const fn = playerJs.slice(playerJs.indexOf('function setupResume'),
+                              playerJs.indexOf('function setupResume') + 600);
+    assert.match(fn, /addEventListener\(\s*['"]pageshow['"]\s*,\s*maybeResume/);
+    assert.match(fn, /addEventListener\(\s*['"]visibilitychange['"]/);
+    assert.match(fn, /document\.visibilityState\s*===\s*['"]visible['"]/);
+  });
+
+  it('resume staleness threshold is reasonable (15-60s window)', () => {
+    const m = playerJs.match(/RESUME_STALENESS_MS\s*=\s*(\d+)/);
+    assert.ok(m, 'RESUME_STALENESS_MS must be defined');
+    const v = Number(m[1]);
+    assert.ok(v >= 15000 && v <= 60000,
+      'staleness must be 15-60s; shorter triggers spurious reloads, longer feels broken');
+  });
+
+  it('init() wires setupResume', () => {
+    const initFn = playerJs.slice(playerJs.indexOf('function init'),
+                                  playerJs.indexOf('function init') + 800);
+    assert.match(initFn, /setupResume\(\)/);
+  });
+});
+
+describe('tv-web polish: slow-connection whisper', () => {
+  it('subscribes to LEVEL_SWITCHED to detect quality drops', () => {
+    assert.match(playerJs, /Hls\.Events\.LEVEL_SWITCHED/);
+    assert.match(playerJs, /function onLevelSwitched/);
+  });
+
+  it('only fires after a debounce, not on a single dip to lowest level', () => {
+    // A single switch to level 0 can be a momentary fluctuation. Only
+    // sustained pinning to level 0 indicates a genuinely slow connection.
+    assert.match(playerJs, /SLOW_CONNECTION_DEBOUNCE_MS\s*=\s*(\d+)/);
+    const m = playerJs.match(/SLOW_CONNECTION_DEBOUNCE_MS\s*=\s*(\d+)/);
+    assert.ok(Number(m[1]) >= 15000,
+      'debounce must be long enough that a transient dip does not show the label');
+  });
+
+  it('clears the whisper as soon as quality switches back up', () => {
+    const fn = playerJs.slice(playerJs.indexOf('function onLevelSwitched'),
+                              playerJs.indexOf('function onLevelSwitched') + 800);
+    assert.match(fn, /hideSlowConnection\(\)/);
+  });
+
+  it('uses the i18n key (translatable, not a hard-coded English string)', () => {
+    assert.match(playerJs, /t\(\s*['"]slowConnection['"]/);
+    const en = JSON.parse(fs.readFileSync(path.join(SRC, '_locales/en/messages.json'), 'utf8'));
+    const fa = JSON.parse(fs.readFileSync(path.join(SRC, '_locales/fa/messages.json'), 'utf8'));
+    assert.ok(en.slowConnection && en.slowConnection.message);
+    assert.ok(fa.slowConnection && fa.slowConnection.message);
+    // The English wording matters: "Slow connection" reads as the network,
+    // not "Weak signal" which implies an antenna/RF source the TV doesn't have.
+    assert.ok(/slow/i.test(en.slowConnection.message));
+  });
+
+  it('subtitle CSS sits inside the badge (no new positioned element)', () => {
+    // Adding a separate positioned element would risk overlapping branding
+    // or other corner UI. Rendering inside .live-badge keeps everything
+    // co-located and pre-mirrored under RTL.
+    assert.match(css, /\.live-slow\s*\{/);
+    assert.match(css, /html\[dir="rtl"\]\s+\.live-slow/);
+  });
+
+  it('destroy() clears the slow-connection timer (no zombie firings after teardown)', () => {
+    const fn = playerJs.slice(playerJs.indexOf('function destroy'),
+                              playerJs.indexOf('function destroy') + 1500);
+    assert.match(fn, /clearTimeout\(\s*slowConnectionTimer\s*\)/);
+  });
+});
+
+describe('tv-web polish: stream pre-warm', () => {
+  it('prewarmStream fires before setupI18n in init()', () => {
+    // Pre-warming during locale load overlaps TLS handshake + manifest
+    // fetch with i18n setup, so the manifest is in cache by the time
+    // hls.js requests it. Running it after setupI18n would defeat the point.
+    const initFn = playerJs.slice(playerJs.indexOf('function init'),
+                                  playerJs.indexOf('function init') + 800);
+    const prewarm = initFn.indexOf('prewarmStream()');
+    const i18n = initFn.indexOf('setupI18n(');
+    assert.ok(prewarm >= 0, 'prewarmStream() must be called from init()');
+    assert.ok(i18n >= 0, 'setupI18n() must be called from init()');
+    assert.ok(prewarm < i18n, 'prewarm must run before setupI18n to overlap with locale fetch');
+  });
+
+  it('prewarmStream targets STREAM_URL and is wrapped in try/catch', () => {
+    // Pre-warm is best-effort: a throw on older Tizen WebViews must not
+    // break cold start. The XHR has no handlers because we only care
+    // about the connection-pool/HTTP-cache side effect.
+    const fn = playerJs.slice(playerJs.indexOf('function prewarmStream'),
+                              playerJs.indexOf('function init'));
+    assert.match(fn, /try\s*\{[\s\S]*\}\s*catch/);
+    assert.match(fn, /STREAM_URL/);
+    assert.match(fn, /xhr\.send\(\)/);
+  });
+});
+
 describe('tv-web polish: live-edge enforcement', () => {
   it('LEVEL_LOADED handler snaps playback to liveSyncPosition on cold start', () => {
     // Without this, hls.js can start a few segments back from live (the

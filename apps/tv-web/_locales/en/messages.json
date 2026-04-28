@@ -3,6 +3,7 @@
   "appDescription":  { "message": "Watch Iran National Revolution TV live on your TV." },
   "splashSub":       { "message": "Live" },
   "liveBadge":       { "message": "LIVE" },
+  "slowConnection":  { "message": "Slow connection" },
   "loadingCaption":  { "message": "Connecting…" },
   "errRetryHint":    { "message": "Press OK to retry" },
   "errNoHls":        { "message": "This TV does not support HLS playback." },

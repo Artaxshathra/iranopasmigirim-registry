@@ -39,6 +39,15 @@ const MANUAL_RETRY_COOLDOWN_MS = 3000;
 // Transient state pill: visible for this long after a play/pause toggle.
 // Long enough to register, short enough to clear the picture quickly.
 const STATE_PILL_HIDE_MS = 1400;
+// Resume-on-return: when the TV wakes from sleep or the user comes back from
+// another app, hls.js's internal recovery is sloppy — the viewer sees ~10s of
+// black, then catch-up at low quality. If we haven't seen a fragment in this
+// long, force startLoad() and snap to live edge on the next pageshow/visible.
+const RESUME_STALENESS_MS = 30000;
+// Slow-connection subtitle: the LIVE badge whispers "slow connection" if
+// hls.js stays pinned to the lowest quality level for this long. Quiet,
+// truthful status — never an alert.
+const SLOW_CONNECTION_DEBOUNCE_MS = 30000;
 
 const video = document.getElementById('video');
 const overlayError = document.getElementById('overlay-error');
@@ -63,6 +72,10 @@ let statePillTimer = null;
 let fatalRetries = 0;
 let mediaRetries = 0;
 let lastManualRetryAt = 0;
+// Wall-clock timestamp of the last loaded fragment. Resume logic uses this
+// to decide whether the player has gone stale during a sleep/background.
+let lastFragLoadedAt = 0;
+let slowConnectionTimer = null;
 // Suppress the very first play event's pill — autoplay-on-first-frame is
 // not a state change the viewer initiated; flashing "▶" at startup is noise.
 let firstPlayHandled = false;
@@ -125,12 +138,31 @@ function setupI18n(done) {
 
 // --- Init ---
 
+// Pre-warm the stream connection in parallel with i18n locale loading.
+// The TLS handshake + manifest fetch typically takes 200-600ms on a TV;
+// firing this XHR before setupI18n lets hls.js's later request hit the
+// HTTP cache and skip both the handshake and the manifest round-trip.
+// If anything throws (e.g. older Tizen with quirky XHR), we silently fall
+// back to the normal cold-start path — no behavioral regression possible.
+function prewarmStream() {
+  try {
+    const xhr = new XMLHttpRequest();
+    xhr.open('GET', STREAM_URL, true);
+    // No event handlers needed: the value is in the connection pool +
+    // HTTP cache as a side effect of the request completing. We don't
+    // care about the response body here.
+    xhr.send();
+  } catch (_) { /* prewarm is best-effort */ }
+}
+
 function init() {
+  prewarmStream();
   setupI18n(function () {
     setupSplash();
     setupBadge();
     setupBuffering();
     setupStatePill();
+    setupResume();
     if (typeof Hls !== 'undefined' && Hls.isSupported()) {
       loadHls(STREAM_URL);
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
@@ -235,8 +267,13 @@ function loadHls(url) {
     hideLoading();
     fatalRetries = 0;
     mediaRetries = 0;
+    lastFragLoadedAt = Date.now();
     if (coldRetryTimer) { clearTimeout(coldRetryTimer); coldRetryTimer = null; }
   });
+
+  // Track quality-level switches so the LIVE badge can quietly flag a slow
+  // connection when hls.js gets stuck on the lowest level.
+  hls.on(Hls.Events.LEVEL_SWITCHED, onLevelSwitched);
 }
 
 function scheduleRetry(delay) {
@@ -356,6 +393,83 @@ function setupBadge() {
   });
   // 'waiting' = mid-stream stall. Don't fire dot while frozen.
   video.addEventListener('waiting', markBadgeStale);
+}
+
+// --- Slow-connection subtitle ---
+//
+// When hls.js stays pinned to the lowest quality level for SLOW_CONNECTION
+// _DEBOUNCE_MS, whisper "Slow connection" under the LIVE badge. Quiet,
+// truthful — no alert, no red. The subtitle is appended/removed in the
+// existing badge so we don't introduce a new positioned element.
+
+function getSlowSubtitle() {
+  return liveBadge ? liveBadge.querySelector('.live-slow') : null;
+}
+
+function showSlowConnection() {
+  if (!liveBadge) return;
+  let sub = getSlowSubtitle();
+  if (!sub) {
+    sub = document.createElement('span');
+    sub.className = 'live-slow';
+    sub.textContent = t('slowConnection', 'Slow connection');
+    liveBadge.appendChild(sub);
+  }
+}
+
+function hideSlowConnection() {
+  if (slowConnectionTimer) { clearTimeout(slowConnectionTimer); slowConnectionTimer = null; }
+  const sub = getSlowSubtitle();
+  if (sub && sub.parentNode) sub.parentNode.removeChild(sub);
+}
+
+function onLevelSwitched(_e, data) {
+  // hls.js levels are sorted by bitrate ascending. data.level === 0 is the
+  // lowest available rendition. If we drop to 0 and stay there long enough,
+  // the connection is genuinely slow — not a single bad fragment.
+  if (!hls || !hls.levels || hls.levels.length <= 1) return;
+  if (data.level === 0) {
+    if (slowConnectionTimer) return; // already counting down
+    slowConnectionTimer = setTimeout(function () {
+      slowConnectionTimer = null;
+      // Re-check at fire-time: hls.js may have switched up while we waited.
+      if (hls && hls.currentLevel === 0) showSlowConnection();
+    }, SLOW_CONNECTION_DEBOUNCE_MS);
+  } else {
+    hideSlowConnection();
+  }
+}
+
+// --- Resume on return ---
+//
+// When the TV wakes from sleep or the user comes back from another app, the
+// app is alive but the stream is N hours behind live. hls.js's internal
+// recovery is sloppy (low quality, slow catch-up). A pageshow / visibility
+// handler that detects staleness and forces startLoad + snap-to-live makes
+// wake-from-sleep feel instantaneous instead of "10s of buffering".
+
+function maybeResume() {
+  if (!hls) return;
+  // No fragment yet → init is still in flight; nothing to resume.
+  if (!lastFragLoadedAt) return;
+  const stale = Date.now() - lastFragLoadedAt;
+  if (stale < RESUME_STALENESS_MS) return;
+  // Force a clean reload from the live edge. startLoad(-1) tells hls.js to
+  // pick liveSyncPosition; the LEVEL_LOADED handler then snaps currentTime
+  // if we're still drifted.
+  try {
+    hls.stopLoad();
+    hls.startLoad(-1);
+  } catch (_) { /* hls in a weird state; let normal recovery handle it */ }
+}
+
+function setupResume() {
+  // pageshow fires when the page is restored from BFCache or wake-from-sleep
+  // on TV WebViews. visibilitychange fires when the user switches apps.
+  window.addEventListener('pageshow', maybeResume);
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible') maybeResume();
+  });
 }
 
 // --- Buffering indicator ---
@@ -604,6 +718,7 @@ function destroy() {
   if (nativeTimeout)   { clearTimeout(nativeTimeout);   nativeTimeout = null; }
   if (bufferingTimer)  { clearTimeout(bufferingTimer);  bufferingTimer = null; }
   if (statePillTimer)  { clearTimeout(statePillTimer);  statePillTimer = null; }
+  if (slowConnectionTimer) { clearTimeout(slowConnectionTimer); slowConnectionTimer = null; }
   if (hls)             { hls.destroy(); hls = null; }
 }
 

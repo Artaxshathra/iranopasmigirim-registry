@@ -3,6 +3,7 @@
   "appDescription":  { "message": "تماشای زنده تلویزیون ملی انقلاب ایران روی تلویزیون شما." },
   "splashSub":       { "message": "زنده" },
   "liveBadge":       { "message": "زنده" },
+  "slowConnection":  { "message": "اتصال کند" },
   "loadingCaption":  { "message": "در حال اتصال…" },
   "errRetryHint":    { "message": "برای تلاش مجدد OK را فشار دهید" },
   "errNoHls":        { "message": "این تلویزیون از پخش HLS پشتیبانی نمی‌کند." },
