@@ -63,10 +63,13 @@ html, body {
 
 /* --- Branding watermark --- */
 
+/* Corner anchors sit on the 5% safe-zone line. Older Tizen sets can crop
+   up to ~5% via overscan; anything inside that line risks getting clipped
+   on the bezel. 96px on a 1920×1080 reference frame is exactly 5%. */
 .branding {
   position: absolute;
-  top: 32px;
-  right: 36px;
+  top: 96px;
+  right: 96px;
   font-size: 28px;
   font-weight: 700;
   color: var(--fg);
@@ -178,8 +181,8 @@ html, body {
 
 .live-badge {
   position: absolute;
-  top: 32px;
-  left: 36px;
+  top: 96px;
+  left: 96px;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -253,13 +256,13 @@ html, body {
    placed by direction (badge, branding) so they sit on the culturally
    appropriate side. */
 
-html[dir="rtl"] .live-badge { left: auto; right: 36px; }
+html[dir="rtl"] .live-badge { left: auto; right: 96px; }
 html[dir="rtl"] .live-slow {
   margin-left: 0; padding-left: 0; border-left: none;
   margin-right: 8px; padding-right: 10px;
   border-right: 1px solid rgba(255, 255, 255, 0.18);
 }
-html[dir="rtl"] .branding   { right: auto; left: 36px; }
+html[dir="rtl"] .branding   { right: auto; left: 96px; }
 html[dir="rtl"] .splash-name,
 html[dir="rtl"] .splash-sub { letter-spacing: 0; }
 
@@ -307,6 +310,83 @@ html[dir="rtl"] .splash-sub { letter-spacing: 0; }
      Tighter blur radius (4px not 12px) — drop-shadow blur is also GPU-bound
      and a smaller radius is indistinguishable at TV viewing distance. */
   filter: drop-shadow(0 1px 4px rgba(0, 0, 0, 0.6));
+}
+
+/* --- Exit confirmation overlay ---
+   Shown when the viewer presses Back on the main player. Centered card with
+   two buttons; LEFT/RIGHT toggles focus, OK confirms, Back/Escape dismisses.
+   Sits above the live picture but below the splash so a Back press during
+   cold-start can't surface a confirmation behind the splash. */
+
+.overlay-exit {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.72);
+  z-index: 15;
+  /* Brief fade so the dialog doesn't snap onto the picture. */
+  opacity: 0;
+  transition: opacity 0.16s ease;
+}
+
+.overlay-exit.show { opacity: 1; }
+
+.exit-card {
+  min-width: 480px;
+  padding: 48px 56px;
+  background: rgba(20, 20, 22, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  text-align: center;
+}
+
+.exit-title {
+  margin: 0 0 32px 0;
+  font-size: 32px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.exit-actions {
+  display: flex;
+  justify-content: center;
+  gap: 24px;
+}
+
+/* Buttons are remote-driven only — no hover state, no pointer interaction.
+   The focused button gets a thick accent ring + scale lift so a viewer 3 m
+   away can tell at a glance which one OK will confirm. Samsung's checklist
+   calls this out specifically: "extremely obvious which button is focused". */
+.exit-btn {
+  min-width: 168px;
+  padding: 18px 28px;
+  font: inherit;
+  font-size: 26px;
+  font-weight: 600;
+  color: var(--fg);
+  background: rgba(255, 255, 255, 0.06);
+  border: 2px solid transparent;
+  border-radius: 10px;
+  cursor: default;
+  /* Disable the UA's default focus outline; we draw our own that's visible
+     from across the room. The UA outline is too thin for 10-foot viewing. */
+  outline: none;
+  transition: transform 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+}
+
+.exit-btn.focused {
+  border-color: var(--accent);
+  background: rgba(196, 30, 58, 0.18);
+  transform: scale(1.06);
+  box-shadow: 0 0 0 4px rgba(196, 30, 58, 0.25);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .overlay-exit { transition: none; }
+  .exit-btn { transition: none; }
+  .exit-btn.focused { transform: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {

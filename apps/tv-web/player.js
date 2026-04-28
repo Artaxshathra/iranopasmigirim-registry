@@ -62,6 +62,9 @@ const splashEl = document.getElementById('splash');
 const statePill = document.getElementById('state-pill');
 const statePillIconPlay = document.getElementById('state-pill-icon-play');
 const statePillIconPause = document.getElementById('state-pill-icon-pause');
+const overlayExit = document.getElementById('overlay-exit');
+const exitBtnYes = document.getElementById('exit-btn-yes');
+const exitBtnNo = document.getElementById('exit-btn-no');
 
 let hls = null;
 let retryTimer = null;
@@ -85,6 +88,14 @@ let slowConnectionTimer = null;
 // Suppress the very first play event's pill — autoplay-on-first-frame is
 // not a state change the viewer initiated; flashing "▶" at startup is noise.
 let firstPlayHandled = false;
+// Exit dialog state. Tracks which of the two buttons is currently "focused"
+// so LEFT/RIGHT can toggle and OK can dispatch. We do not use the DOM focus
+// model: TV WebViews only sometimes deliver real focus events from a remote,
+// and our key path is already centralized in dispatchAction.
+let exitOpen = false;
+let exitFocus = 'yes'; // 'yes' | 'no' — default starts on Exit so a viewer
+                       // who pressed Back deliberately can confirm with one OK
+let exitFadeTimer = null;
 
 // --- i18n ---
 //
@@ -542,6 +553,67 @@ function manualRetry() {
   else if (video.canPlayType('application/vnd.apple.mpegurl')) loadNative(STREAM_URL);
 }
 
+// --- Exit confirmation dialog ---
+//
+// Back on the main screen opens this; OK confirms (or cancels, depending on
+// which button is "focused"); Back again or Cancel dismisses. Required by
+// Samsung's review checklist — Back must either close the app immediately
+// or ask. We chose ask: an accidental Back press shouldn't drop a viewer
+// out of a live stream.
+//
+// Focus model: managed manually via the .focused class rather than the DOM
+// focus model. TV WebViews are inconsistent about delivering real focus
+// events from a remote, and a manual class lets the same key path
+// (dispatchAction) own all behavior.
+
+function setExitFocus(which) {
+  exitFocus = which;
+  if (!exitBtnYes || !exitBtnNo) return;
+  exitBtnYes.classList.toggle('focused', which === 'yes');
+  exitBtnNo.classList.toggle('focused', which === 'no');
+}
+
+function openExitDialog() {
+  if (!overlayExit) {
+    // Defensive fallback: if the dialog node is missing for any reason,
+    // never strand the viewer. Exit immediately so Back still does
+    // something sensible (matches the original behavior).
+    platformExit();
+    return;
+  }
+  if (exitOpen) return;
+  exitOpen = true;
+  setExitFocus('yes');
+  overlayExit.hidden = false;
+  // Force a reflow so the next class add re-plays the fade-in transition
+  // (otherwise hidden→.show in the same frame collapses to no animation).
+  // eslint-disable-next-line no-void
+  void overlayExit.offsetWidth;
+  overlayExit.classList.add('show');
+  // Pause playback while the modal is up — audio over a "are you exiting?"
+  // dialog is jarring, and a paused stream will rejoin live edge via the
+  // existing maybeResume / LEVEL_LOADED path on Cancel.
+  if (!video.paused) {
+    try { video.pause(); } catch (_) {}
+  }
+}
+
+function closeExitDialog() {
+  if (!overlayExit || !exitOpen) return;
+  exitOpen = false;
+  overlayExit.classList.remove('show');
+  if (exitFadeTimer) clearTimeout(exitFadeTimer);
+  // Wait for the fade-out before fully hiding so [hidden]{display:none}
+  // doesn't snap the dialog away mid-transition. Match the 160ms in CSS.
+  exitFadeTimer = setTimeout(function () {
+    exitFadeTimer = null;
+    if (!exitOpen && overlayExit) overlayExit.hidden = true;
+  }, 180);
+  // Resume playback on cancel. safePlay() swallows the autoplay rejection
+  // so a platform that refuses to resume doesn't bubble an uncaught promise.
+  safePlay();
+}
+
 // --- Transient state pill ---
 //
 // A glassy badge that flashes for ~1.4 s when play/pause toggles via the
@@ -612,9 +684,46 @@ const REMOTE_KEYCODES = {
   461:   'back',       // Tizen VK_BACK
   10009: 'back',       // webOS Back
   8:     'back',       // Backspace fallback for dev
+  // Arrow keys + OK — only meaningful while the exit dialog is open. On the
+  // main screen these are no-ops (no chrome to navigate). Standard W3C codes
+  // work on both Tizen and webOS for the directional pad.
+  37: 'left',
+  39: 'right',
+  13: 'enter',         // VK_ENTER on Tizen / OK on most TV remotes
 };
 
 function dispatchAction(action, e) {
+  // Exit dialog owns input while open. Routing through here (not a separate
+  // listener) keeps a single source of truth for what every key does and
+  // makes sure platform Back can't sneak past while the dialog is up.
+  if (exitOpen) {
+    switch (action) {
+      case 'left':  if (e) e.preventDefault(); setExitFocus('yes'); return;
+      case 'right': if (e) e.preventDefault(); setExitFocus('no');  return;
+      case 'enter':
+        if (e) e.preventDefault();
+        if (exitFocus === 'yes') platformExit();
+        else closeExitDialog();
+        return;
+      case 'back':
+        // Second Back press dismisses the dialog (matches the user's mental
+        // model: Back is "go back", and the dialog itself is what you'd want
+        // to back out of). Samsung's checklist accepts either pattern; this
+        // is the safer one because it never exits without an explicit OK.
+        if (e) e.preventDefault();
+        closeExitDialog();
+        return;
+      // Playpause/stop while the dialog is open are intentionally swallowed:
+      // toggling video state behind a modal is confusing and StopKey acting
+      // as Exit would race the OK confirmation.
+      case 'playpause':
+      case 'stop':
+        if (e) e.preventDefault();
+        return;
+    }
+    return;
+  }
+
   switch (action) {
     case 'playpause':
       togglePlay();
@@ -627,14 +736,16 @@ function dispatchAction(action, e) {
       if (!overlayError.hidden) manualRetry();
       break;
     case 'back':
-      // Always consume Back: otherwise on Tizen the platform's own Back
-      // handler also fires and the app exits twice (once via platformExit,
-      // once via the platform navigation). With no chrome to dismiss, Back
-      // always means "leave the app."
+      // Open the exit confirmation. Always consume Back so the platform's
+      // own Back handler doesn't also fire and exit the app behind our
+      // dialog. Samsung's review checklist requires Back on the main screen
+      // to either close immediately or surface a confirmation; we do the
+      // latter so an accidental press doesn't drop the viewer out.
       if (e) e.preventDefault();
-      platformExit();
+      openExitDialog();
       break;
     case 'stop':
+      // Stop is a deliberate "I'm done watching" press; bypass the dialog.
       platformExit();
       break;
   }
@@ -749,6 +860,7 @@ function destroy() {
   if (bufferingTimer)  { clearTimeout(bufferingTimer);  bufferingTimer = null; }
   if (statePillTimer)  { clearTimeout(statePillTimer);  statePillTimer = null; }
   if (statePillFadeTimer) { clearTimeout(statePillFadeTimer); statePillFadeTimer = null; }
+  if (exitFadeTimer)   { clearTimeout(exitFadeTimer);   exitFadeTimer = null; }
   if (slowConnectionTimer) { clearTimeout(slowConnectionTimer); slowConnectionTimer = null; }
   // Best-effort abort: a still-pending prewarm fetch shouldn't outlive the
   // page. If it already finished, abort() is a no-op.

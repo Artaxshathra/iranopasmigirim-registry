@@ -67,11 +67,30 @@ describe('tv-web TV UX: D-pad and remote keycodes', () => {
     assert.ok(remoteIdx < switchIdx, 'remote-code lookup must precede named-key switch');
   });
 
-  it('Back always exits cleanly and consumes the event', () => {
-    const block = playerJs.slice(playerJs.indexOf("case 'back':"),
-                                 playerJs.indexOf("case 'stop':"));
-    assert.match(block, /platformExit\(\)/);
+  it('Back opens the exit confirmation and consumes the event', () => {
+    // Per Samsung's review checklist, Back on the main player must either
+    // close immediately or surface a confirmation. We do the latter so an
+    // accidental Back doesn't drop the viewer out of a live stream. The
+    // event must still be preventDefault-ed so Tizen's platform Back
+    // handler doesn't also fire and exit behind our dialog.
+    //
+    // We slice the *main* (non-exitOpen) branch of dispatchAction here,
+    // anchored at the second occurrence of `case 'back':` to skip the
+    // exit-dialog handler that sits earlier in the function.
+    const allBackCases = [...playerJs.matchAll(/case 'back':/g)];
+    assert.ok(allBackCases.length >= 2, "expected separate 'back' cases for dialog open vs. closed");
+    const mainStart = allBackCases[allBackCases.length - 1].index;
+    const block = playerJs.slice(mainStart, playerJs.indexOf("case 'stop':", mainStart));
+    assert.match(block, /openExitDialog\(\)/);
     assert.match(block, /preventDefault/, 'must consume Back so platform does not also exit');
+  });
+
+  it('Stop key bypasses the exit dialog (deliberate "I am done" press)', () => {
+    // The hardware Stop key is a deliberate end-of-watching gesture, not a
+    // navigation hiccup. Going through the dialog for it would feel laggy.
+    const stopIdx = playerJs.lastIndexOf("case 'stop':");
+    const block = playerJs.slice(stopIdx, stopIdx + 200);
+    assert.match(block, /platformExit\(\)/);
   });
 });
 

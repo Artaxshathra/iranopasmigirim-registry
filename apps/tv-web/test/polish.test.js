@@ -399,10 +399,13 @@ describe('tv-web polish: manual retry from error overlay', () => {
   it('Enter on error overlay calls manualRetry instead of activating chrome', () => {
     // Without this branch a viewer stuck on "Stream is offline" can't escape
     // without restarting the app — Enter would just toggle the chrome.
-    const enterCase = playerJs.match(/case\s+['"]enter['"]\s*:[\s\S]*?break;/);
-    assert.ok(enterCase, "'enter' case must exist in dispatchAction");
-    assert.match(enterCase[0], /overlayError\.hidden/);
-    assert.match(enterCase[0], /manualRetry\(\)/);
+    // We grab the *last* 'enter' case (the main-screen branch) — earlier
+    // ones belong to the exit-dialog handler in dispatchAction.
+    const all = [...playerJs.matchAll(/case\s+['"]enter['"]\s*:[\s\S]*?break;/g)];
+    assert.ok(all.length >= 1, "'enter' case must exist in dispatchAction");
+    const main = all[all.length - 1][0];
+    assert.match(main, /overlayError\.hidden/);
+    assert.match(main, /manualRetry\(\)/);
   });
 
   it('manualRetry is rate-limited (no origin hammering on key-mash)', () => {
@@ -628,6 +631,157 @@ describe('tv-web polish: GPU-friendly CSS', () => {
     // at TV distance. Smaller radius = less per-frame fillrate cost.
     const block = css.match(/\.state-pill-icon\s*\{[\s\S]*?\}/)[0];
     assert.match(block, /drop-shadow\(0\s+1px\s+4px/);
+  });
+});
+
+describe('tv-web polish: exit confirmation (Samsung review checklist)', () => {
+  it('overlay + two buttons + i18n keys exist in HTML, hidden by default', () => {
+    // Samsung's review checklist: Back on the main player must either close
+    // immediately or surface a confirmation. We do the latter so an
+    // accidental Back doesn't drop a viewer out of a live stream.
+    assert.match(html, /id=["']overlay-exit["'][^>]*\bhidden\b/,
+      'exit overlay must start hidden so it never flashes on load');
+    assert.match(html, /id=["']exit-btn-yes["'][^>]+data-i18n=["']exitYes["']/);
+    assert.match(html, /id=["']exit-btn-no["'][^>]+data-i18n=["']exitNo["']/);
+    assert.match(html, /class=["']exit-title["'][^>]+data-i18n=["']exitTitle["']/);
+  });
+
+  it('all three i18n keys are translated in en + fa', () => {
+    const en = JSON.parse(fs.readFileSync(path.join(SRC, '_locales/en/messages.json'), 'utf8'));
+    const fa = JSON.parse(fs.readFileSync(path.join(SRC, '_locales/fa/messages.json'), 'utf8'));
+    for (const k of ['exitTitle', 'exitYes', 'exitNo']) {
+      assert.ok(en[k] && en[k].message, `en missing "${k}"`);
+      assert.ok(fa[k] && fa[k].message, `fa missing "${k}"`);
+    }
+  });
+
+  it('Back on the main screen opens the dialog (does not exit immediately)', () => {
+    // Samsung reviewers test this manually: a single Back press from the
+    // player should NOT exit the app silently. It must surface the
+    // confirmation dialog. The exit only happens after explicit OK on
+    // the Exit button.
+    assert.match(playerJs, /function openExitDialog/);
+    assert.match(playerJs, /function closeExitDialog/);
+    // The main-screen back branch (last 'case back': in dispatchAction)
+    // calls openExitDialog, NOT platformExit.
+    const allBack = [...playerJs.matchAll(/case 'back':/g)];
+    const mainBack = playerJs.slice(allBack[allBack.length - 1].index,
+                                    playerJs.indexOf("case 'stop':", allBack[allBack.length - 1].index));
+    assert.match(mainBack, /openExitDialog\(\)/);
+    assert.ok(!/platformExit\(\)/.test(mainBack),
+      'main-screen Back must open the dialog, not exit directly');
+  });
+
+  it('OK on the focused Exit button calls platformExit; OK on Cancel dismisses', () => {
+    // The dialog branch must dispatch on exitFocus: 'yes' → platformExit,
+    // 'no' → close. Without this, OK would always do the same thing.
+    const dispatchStart = playerJs.indexOf('function dispatchAction');
+    const dispatchEnd = playerJs.indexOf('function setupKeyboard');
+    const dispatch = playerJs.slice(dispatchStart, dispatchEnd);
+    // The exit-dialog branch is gated on exitOpen and contains both paths.
+    assert.match(dispatch, /if\s*\(\s*exitOpen\s*\)/);
+    assert.match(dispatch, /exitFocus\s*===\s*['"]yes['"][\s\S]*?platformExit\(\)/);
+    assert.match(dispatch, /closeExitDialog\(\)/);
+  });
+
+  it('LEFT/RIGHT toggle which button is focused', () => {
+    // On a TV remote there is no pointer, so dialog navigation is purely
+    // directional. LEFT focuses Exit (the first/default), RIGHT focuses
+    // Cancel. Without this the dialog is unreachable for a viewer who
+    // accidentally pressed Back and wants to dismiss.
+    const dispatchStart = playerJs.indexOf('function dispatchAction');
+    const dispatchEnd = playerJs.indexOf('function setupKeyboard');
+    const dispatch = playerJs.slice(dispatchStart, dispatchEnd);
+    assert.match(dispatch, /case 'left':[\s\S]*?setExitFocus\(\s*['"]yes['"]/);
+    assert.match(dispatch, /case 'right':[\s\S]*?setExitFocus\(\s*['"]no['"]/);
+  });
+
+  it('LEFT/RIGHT/OK remote keycodes are mapped (37, 39, 13)', () => {
+    // Without these the dialog is keyboard-only and unreachable from a
+    // real remote. Standard W3C codes work on both Tizen and webOS for
+    // the directional pad and OK button.
+    const map = playerJs.slice(playerJs.indexOf('REMOTE_KEYCODES'),
+                               playerJs.indexOf('};', playerJs.indexOf('REMOTE_KEYCODES')));
+    assert.match(map, /37:\s*['"]left['"]/);
+    assert.match(map, /39:\s*['"]right['"]/);
+    assert.match(map, /13:\s*['"]enter['"]/);
+  });
+
+  it('Back while the dialog is open dismisses it (does not exit)', () => {
+    // Two-Back-presses-to-exit is a valid pattern, but more confusingly:
+    // a viewer who pressed Back wants to back out, including out of the
+    // dialog itself. We close on a second Back so the only way to actually
+    // exit is an explicit OK on the Exit button.
+    const dispatchStart = playerJs.indexOf('function dispatchAction');
+    const dispatchEnd = playerJs.indexOf('function setupKeyboard');
+    const dispatch = playerJs.slice(dispatchStart, dispatchEnd);
+    // The first 'case back:' in dispatchAction belongs to the exitOpen
+    // branch (dispatchAction is structured: if(exitOpen){switch}return;
+    // switch(action){...}). It must call closeExitDialog().
+    const firstBack = dispatch.indexOf("case 'back':");
+    assert.ok(firstBack > 0, "'back' case must appear in dispatchAction");
+    const exitBackBlock = dispatch.slice(firstBack, firstBack + 600);
+    assert.match(exitBackBlock, /closeExitDialog\(\)/);
+  });
+
+  it('opening the dialog pauses playback (audio behind a modal is jarring)', () => {
+    const fn = playerJs.slice(playerJs.indexOf('function openExitDialog'),
+                              playerJs.indexOf('function closeExitDialog'));
+    assert.match(fn, /video\.pause\(\)/);
+  });
+
+  it('cancelling the dialog resumes playback', () => {
+    const fn = playerJs.slice(playerJs.indexOf('function closeExitDialog'),
+                              playerJs.indexOf('function closeExitDialog') + 600);
+    assert.match(fn, /safePlay\(\)/);
+  });
+
+  it('focused button gets a clearly-visible accent ring + scale (10-foot UI)', () => {
+    // Samsung checklist: focus must be "extremely obvious — glowing border
+    // or scale effect". Both, in our case.
+    assert.match(css, /\.exit-btn\.focused\s*\{[\s\S]*?border-color:\s*var\(--accent\)/);
+    assert.match(css, /\.exit-btn\.focused\s*\{[\s\S]*?transform:\s*scale\(/);
+  });
+
+  it('focus animation is suppressed under prefers-reduced-motion', () => {
+    assert.match(css,
+      /@media\s*\([^)]*prefers-reduced-motion[^)]*\)[\s\S]*?\.exit-btn\.focused[^}]*transform:\s*none/);
+  });
+
+  it('overlayExit destructure is present (the JS handle the dialog needs)', () => {
+    assert.match(playerJs, /const\s+overlayExit\s*=\s*document\.getElementById\(['"]overlay-exit['"]/);
+    assert.match(playerJs, /const\s+exitBtnYes\s*=\s*document\.getElementById\(['"]exit-btn-yes['"]/);
+    assert.match(playerJs, /const\s+exitBtnNo\s*=\s*document\.getElementById\(['"]exit-btn-no['"]/);
+  });
+
+  it('exit fade-out timer is tracked and cleared in destroy()', () => {
+    // Same hygiene rule we apply elsewhere: every setTimeout that the app
+    // could outlive must be releasable from destroy().
+    assert.match(playerJs, /exitFadeTimer\s*=\s*setTimeout/);
+    const destroy = playerJs.slice(playerJs.indexOf('function destroy'),
+                                   playerJs.indexOf('function destroy') + 2500);
+    assert.match(destroy, /clearTimeout\(\s*exitFadeTimer\s*\)/);
+  });
+});
+
+describe('tv-web polish: 5% safe-zone (TV overscan)', () => {
+  it('LIVE badge sits on the 96px (5%) safe-zone line, not the bezel', () => {
+    // Older Tizen sets can crop ~5% via overscan. 1.7% margins risk getting
+    // clipped. 96px on a 1920×1080 reference frame is exactly 5%.
+    const block = css.match(/\.live-badge\s*\{[\s\S]*?\}/)[0];
+    assert.match(block, /top:\s*96px/);
+    assert.match(block, /left:\s*96px/);
+  });
+
+  it('branding watermark sits on the 96px (5%) safe-zone line', () => {
+    const block = css.match(/\.branding\s*\{[\s\S]*?\}/)[0];
+    assert.match(block, /top:\s*96px/);
+    assert.match(block, /right:\s*96px/);
+  });
+
+  it('RTL mirrors keep the 96px margin on the flipped side', () => {
+    assert.match(css, /html\[dir="rtl"\]\s+\.live-badge[^}]*right:\s*96px/);
+    assert.match(css, /html\[dir="rtl"\]\s+\.branding[^}]*left:\s*96px/);
   });
 });
 

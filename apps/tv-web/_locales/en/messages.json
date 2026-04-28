@@ -13,5 +13,8 @@
   "errFatal":        { "message": "Playback failed. Please restart the app." },
   "errOffline":      { "message": "Stream is offline. Retrying…" },
   "errStuck":        { "message": "Stream did not start. Please restart the app." },
-  "errPlayback":     { "message": "Playback error. Please restart the app." }
+  "errPlayback":     { "message": "Playback error. Please restart the app." },
+  "exitTitle":       { "message": "Exit INRTV?" },
+  "exitYes":         { "message": "Exit" },
+  "exitNo":          { "message": "Cancel" }
 }

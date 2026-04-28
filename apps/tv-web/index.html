@@ -52,6 +52,24 @@
       <p class="loading-caption" data-i18n="loadingCaption">Connecting…</p>
     </div>
 
+    <!-- Exit confirmation: Samsung's review checklist requires Back on the
+         main player to either close the app immediately or surface a
+         confirmation. We do the latter so an accidental Back doesn't drop
+         the viewer out mid-stream. Two buttons, focus-ring on the active one,
+         LEFT/RIGHT toggles, OK confirms, Back/Escape dismisses. The dialog
+         is invisible until Back is pressed; no role="dialog" because TV
+         WebViews don't run AT and a focus trap would just complicate the
+         remote-only input model. -->
+    <div id="overlay-exit" class="overlay-exit" hidden aria-hidden="true">
+      <div class="exit-card">
+        <p class="exit-title" data-i18n="exitTitle">Exit INRTV?</p>
+        <div class="exit-actions">
+          <button id="exit-btn-yes" class="exit-btn" type="button" data-i18n="exitYes">Exit</button>
+          <button id="exit-btn-no"  class="exit-btn" type="button" data-i18n="exitNo">Cancel</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Transient state pill: a glassy badge that flashes for ~1.5 s when
          play/pause toggles via the remote. The hardware play/pause key on
          the TV remote is the only way to trigger this — there is no docked
