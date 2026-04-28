@@ -11,7 +11,11 @@
        url('lib/fonts/Vazirmatn-wght.woff2') format('woff2');
   font-weight: 100 900;
   font-style: normal;
-  font-display: block;
+  /* swap, not block: on a slow TV the woff2 can take >100ms to decode and
+     `block` would render the splash text invisible until it lands. The fallback
+     stack (system-ui) is close enough that the brief swap is invisible to a
+     viewer, while `block` produced a noticeable "FOIT" on cold start. */
+  font-display: swap;
 }
 
 :root {
@@ -278,9 +282,11 @@ html[dir="rtl"] .splash-sub { letter-spacing: 0; }
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 50%;
   /* Frosted glass — degrades to a flat translucent disc on TV WebViews
-     that don't support backdrop-filter (older Tizen). */
-  -webkit-backdrop-filter: blur(18px) saturate(1.2);
-  backdrop-filter: blur(18px) saturate(1.2);
+     that don't support backdrop-filter (older Tizen). Blur radius and the
+     saturate() pass are both expensive on weak TV GPUs; 12px without
+     saturate looks identical at 10-foot viewing distance. */
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
   z-index: 9;
   pointer-events: none;
   opacity: 0;
@@ -297,8 +303,10 @@ html[dir="rtl"] .splash-sub { letter-spacing: 0; }
   width: 64px;
   height: 64px;
   color: var(--fg);
-  /* Subtle drop so the glyph reads on bright frames without a heavy bg. */
-  filter: drop-shadow(0 2px 12px rgba(0, 0, 0, 0.45));
+  /* Subtle drop so the glyph reads on bright frames without a heavy bg.
+     Tighter blur radius (4px not 12px) — drop-shadow blur is also GPU-bound
+     and a smaller radius is indistinguishable at TV viewing distance. */
+  filter: drop-shadow(0 1px 4px rgba(0, 0, 0, 0.6));
 }
 
 @media (prefers-reduced-motion: reduce) {

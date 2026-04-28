@@ -95,8 +95,8 @@ describe('tv-web polish: resume on return (wake-from-sleep / app switch)', () =>
   it('tracks the wall-clock time of the last loaded fragment', () => {
     // Without this, maybeResume() can't tell stale from fresh.
     assert.match(playerJs, /lastFragLoadedAt/);
-    const fragHandler = playerJs.slice(playerJs.indexOf('Hls.Events.FRAG_LOADED'),
-                                       playerJs.indexOf('Hls.Events.FRAG_LOADED') + 600);
+    const fragHandler = playerJs.slice(playerJs.indexOf('function onFragLoaded'),
+                                       playerJs.indexOf('function onFragLoaded') + 600);
     assert.match(fragHandler, /lastFragLoadedAt\s*=\s*Date\.now\(\)/);
   });
 
@@ -205,7 +205,7 @@ describe('tv-web polish: stream pre-warm', () => {
                               playerJs.indexOf('function init'));
     assert.match(fn, /try\s*\{[\s\S]*\}\s*catch/);
     assert.match(fn, /STREAM_URL/);
-    assert.match(fn, /xhr\.send\(\)/);
+    assert.match(fn, /prewarmXhr\.send\(\)/);
   });
 });
 
@@ -217,8 +217,8 @@ describe('tv-web polish: live-edge enforcement', () => {
     // before catching up". Snapping to liveSyncPosition on cold start
     // eliminates the visible drift.
     assert.match(playerJs, /Hls\.Events\.LEVEL_LOADED/);
-    const handler = playerJs.slice(playerJs.indexOf('Hls.Events.LEVEL_LOADED'),
-                                   playerJs.indexOf('Hls.Events.LEVEL_LOADED') + 600);
+    const handler = playerJs.slice(playerJs.indexOf('function onLevelLoaded'),
+                                   playerJs.indexOf('function onLevelLoaded') + 600);
     assert.match(handler, /liveSyncPosition/);
     assert.match(handler, /currentTime/);
     assert.match(handler, /details\.live/, 'must guard on details.live (VOD must not snap)');
@@ -332,8 +332,8 @@ describe('tv-web polish: cold-retry resilience', () => {
     // The FRAG_LOADED handler is the only path that knows the stream is
     // back; if it doesn't kill the cold-retry timer, the slow poll keeps
     // calling startLoad() during normal playback.
-    const handlerStart = playerJs.indexOf("hls.on(Hls.Events.FRAG_LOADED");
-    assert.ok(handlerStart > 0, 'FRAG_LOADED handler must exist');
+    const handlerStart = playerJs.indexOf("function onFragLoaded");
+    assert.ok(handlerStart > 0, 'onFragLoaded handler must exist');
     const fragBlock = playerJs.slice(handlerStart, handlerStart + 400);
     assert.match(fragBlock, /coldRetryTimer/);
     assert.match(fragBlock, /clearTimeout\(coldRetryTimer\)/);
@@ -516,6 +516,118 @@ describe('tv-web polish: audio-only feature fully removed', () => {
     assert.ok(!('audioOnlySub' in en));
     assert.ok(!('audioOnlyLabel' in fa));
     assert.ok(!('audioOnlySub' in fa));
+  });
+});
+
+describe('tv-web polish: hls listener hygiene', () => {
+  it('the five hls.on subscriptions all use named functions (so destroy can off them)', () => {
+    // Inline arrow listeners can't be unsubscribed because there's no stable
+    // reference to pass to hls.off(). Promoting them to named functions lets
+    // destroy() detach cleanly, so a late-firing event into a half-destroyed
+    // hls instance can't throw during app shutdown.
+    const expected = [
+      ['MANIFEST_PARSED', 'onManifestParsed'],
+      ['LEVEL_LOADED', 'onLevelLoaded'],
+      ['ERROR', 'onHlsError'],
+      ['FRAG_LOADED', 'onFragLoaded'],
+      ['LEVEL_SWITCHED', 'onLevelSwitched'],
+    ];
+    for (const [evt, fn] of expected) {
+      const re = new RegExp('hls\\.on\\(\\s*Hls\\.Events\\.' + evt + '\\s*,\\s*' + fn + '\\s*\\)');
+      assert.match(playerJs, re, `Hls.Events.${evt} must subscribe ${fn} (named)`);
+    }
+  });
+
+  it('destroy() unsubscribes every hls listener before hls.destroy()', () => {
+    const fn = playerJs.slice(playerJs.indexOf('function destroy'),
+                              playerJs.indexOf('function destroy') + 2000);
+    const expected = ['onManifestParsed', 'onLevelLoaded', 'onHlsError',
+                      'onFragLoaded', 'onLevelSwitched'];
+    for (const name of expected) {
+      const re = new RegExp('hls\\.off\\([^)]*,\\s*' + name + '\\s*\\)');
+      assert.match(fn, re, `destroy() must hls.off(..., ${name})`);
+    }
+    // Order matters: off() must precede destroy(), otherwise destroy() may
+    // already have nulled internal listener tables.
+    const offIdx = fn.search(/hls\.off\(/);
+    const destIdx = fn.search(/hls\.destroy\(/);
+    assert.ok(offIdx > 0 && destIdx > offIdx,
+      'hls.off() calls must come before hls.destroy()');
+  });
+});
+
+describe('tv-web polish: prewarm XHR is abortable', () => {
+  it('prewarmStream stores the XHR in a module variable and clears it onloadend', () => {
+    // Without a stored reference, destroy() can't abort an in-flight prewarm.
+    // The reference is cleared once the request completes so abort() is a
+    // no-op for already-finished requests.
+    const fn = playerJs.slice(playerJs.indexOf('function prewarmStream'),
+                              playerJs.indexOf('function init'));
+    assert.match(fn, /prewarmXhr\s*=\s*new\s+XMLHttpRequest/);
+    assert.match(fn, /onloadend\s*=\s*function[^}]*prewarmXhr\s*=\s*null/);
+  });
+
+  it('destroy() aborts a still-pending prewarm', () => {
+    const fn = playerJs.slice(playerJs.indexOf('function destroy'),
+                              playerJs.indexOf('function destroy') + 2000);
+    assert.match(fn, /prewarmXhr/);
+    assert.match(fn, /prewarmXhr\.abort\(\)/);
+  });
+});
+
+describe('tv-web polish: resume debounce', () => {
+  it('maybeResume guards against double-fire from pageshow + visibilitychange', () => {
+    // pageshow + visibilitychange can both fire on the same wake event.
+    // Without a debounce we'd issue stopLoad/startLoad twice in quick
+    // succession, producing a visible re-buffer.
+    assert.match(playerJs, /RESUME_DEBOUNCE_MS\s*=\s*(\d+)/);
+    const m = playerJs.match(/RESUME_DEBOUNCE_MS\s*=\s*(\d+)/);
+    assert.ok(Number(m[1]) >= 30000,
+      'debounce must be long enough that double-fires are gated; ~60s is right');
+    const fn = playerJs.slice(playerJs.indexOf('function maybeResume'),
+                              playerJs.indexOf('function setupResume'));
+    assert.match(fn, /lastResumeAt/);
+    assert.match(fn, /RESUME_DEBOUNCE_MS/);
+  });
+});
+
+describe('tv-web polish: state pill fade timer is tracked', () => {
+  it('the inner fade-out setTimeout assigns to statePillFadeTimer', () => {
+    // Previously this was an orphan setTimeout — destroy() could not clear it,
+    // so a teardown mid-fade would leave a callback that touched a stale
+    // statePill ref. Tracking it lets destroy() clean up properly.
+    const fn = playerJs.slice(playerJs.indexOf('function flashStatePill'),
+                              playerJs.indexOf('function flashStatePill') + 1500);
+    assert.match(fn, /statePillFadeTimer\s*=\s*setTimeout/);
+  });
+});
+
+describe('tv-web polish: GPU-friendly CSS', () => {
+  it('font-display is swap (no FOIT on cold start over slow Wi-Fi)', () => {
+    // `block` would render the splash text invisible until the woff2 lands,
+    // which on a slow TV connection can be >100ms. swap shows the system-ui
+    // fallback immediately, then swaps in Vazirmatn — invisible to a viewer
+    // sitting 3m away, but eliminates the FOIT.
+    assert.match(css, /font-display:\s*swap/);
+    assert.ok(!/font-display:\s*block/.test(css),
+      'no font-display: block (would FOIT on slow TVs)');
+  });
+
+  it('state-pill backdrop-filter drops saturate() and uses a smaller blur', () => {
+    // backdrop-filter blur radius and the saturate() pass are both GPU-bound
+    // on weak Tizen SoCs. 12px without saturate looks identical to 18px+sat
+    // at 10-foot viewing distance.
+    const block = css.match(/\.state-pill\s*\{[\s\S]*?\}/)[0];
+    assert.match(block, /backdrop-filter:\s*blur\(12px\)\s*;/);
+    assert.ok(!/backdrop-filter:[^;]*saturate/.test(block),
+      'state-pill backdrop-filter must not include saturate() (GPU-expensive)');
+  });
+
+  it('state-pill icon drop-shadow uses a tight blur radius', () => {
+    // drop-shadow blur is also GPU-bound; 4px is indistinguishable from 12px
+    // at TV distance. Smaller radius = less per-frame fillrate cost.
+    const block = css.match(/\.state-pill-icon\s*\{[\s\S]*?\}/)[0];
+    assert.match(block, /drop-shadow\(0\s+1px\s+4px/);
   });
 });
 

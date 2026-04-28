@@ -44,6 +44,9 @@ const STATE_PILL_HIDE_MS = 1400;
 // black, then catch-up at low quality. If we haven't seen a fragment in this
 // long, force startLoad() and snap to live edge on the next pageshow/visible.
 const RESUME_STALENESS_MS = 30000;
+// pageshow + visibilitychange occasionally both fire on the same wake event;
+// don't run a second stopLoad/startLoad inside this window.
+const RESUME_DEBOUNCE_MS = 60000;
 // Slow-connection subtitle: the LIVE badge whispers "slow connection" if
 // hls.js stays pinned to the lowest quality level for this long. Quiet,
 // truthful status — never an alert.
@@ -69,9 +72,12 @@ let splashTimer = null;
 let nativeTimeout = null;
 let bufferingTimer = null;
 let statePillTimer = null;
+let statePillFadeTimer = null;
+let prewarmXhr = null;
 let fatalRetries = 0;
 let mediaRetries = 0;
 let lastManualRetryAt = 0;
+let lastResumeAt = 0;
 // Wall-clock timestamp of the last loaded fragment. Resume logic uses this
 // to decide whether the player has gone stale during a sleep/background.
 let lastFragLoadedAt = 0;
@@ -146,13 +152,16 @@ function setupI18n(done) {
 // back to the normal cold-start path — no behavioral regression possible.
 function prewarmStream() {
   try {
-    const xhr = new XMLHttpRequest();
-    xhr.open('GET', STREAM_URL, true);
+    prewarmXhr = new XMLHttpRequest();
+    prewarmXhr.open('GET', STREAM_URL, true);
+    // Drop the reference once it finishes so destroy() doesn't bother
+    // aborting an already-completed request.
+    prewarmXhr.onloadend = function () { prewarmXhr = null; };
     // No event handlers needed: the value is in the connection pool +
     // HTTP cache as a side effect of the request completing. We don't
     // care about the response body here.
-    xhr.send();
-  } catch (_) { /* prewarm is best-effort */ }
+    prewarmXhr.send();
+  } catch (_) { prewarmXhr = null; /* prewarm is best-effort */ }
 }
 
 function init() {
@@ -213,67 +222,73 @@ function loadHls(url) {
   hls.loadSource(url);
   hls.attachMedia(video);
 
-  hls.on(Hls.Events.MANIFEST_PARSED, function () {
-    safePlay();
-    hideLoading();
-  });
-
-  // Force live edge on first level load. Without this, hls.js can start a
-  // few segments back from live (the manifest's EXT-X-START or the head of
-  // the live window), which surfaced as "showing yesterday's content for a
-  // few seconds before catching up" on cold start.
-  hls.on(Hls.Events.LEVEL_LOADED, function (_e, data) {
-    if (!data || !data.details || !data.details.live) return;
-    const edge = hls.liveSyncPosition;
-    if (typeof edge === 'number' && isFinite(edge) &&
-        Math.abs(video.currentTime - edge) > 4) {
-      try { video.currentTime = edge; } catch (_) {}
-    }
-  });
-
-  hls.on(Hls.Events.ERROR, function (_event, data) {
-    if (!data.fatal) return;
-    switch (data.type) {
-      case Hls.ErrorTypes.NETWORK_ERROR:
-        if (fatalRetries >= MAX_FATAL_RETRIES) {
-          enterColdRetry();
-          return;
-        }
-        fatalRetries++;
-        showError(t('errNetwork', 'Reconnecting…'));
-        scheduleRetry(RETRY_DELAY_MS);
-        break;
-      case Hls.ErrorTypes.MEDIA_ERROR:
-        // Cap recovery attempts — without it, a wedged decoder on a weak TV
-        // chip would loop forever and leave "Recovering..." on screen with
-        // no exit. Counter resets on FRAG_LOADED so a transient glitch
-        // doesn't poison the budget for the rest of the session.
-        if (mediaRetries >= MAX_FATAL_RETRIES) {
-          showError(t('errMedia', 'Playback failed. Please restart the app.'));
-          return;
-        }
-        mediaRetries++;
-        showError(t('errRecovering', 'Recovering…'));
-        hls.recoverMediaError();
-        break;
-      default:
-        showError(t('errFatal', 'Playback failed. Please restart the app.'));
-        break;
-    }
-  });
-
-  hls.on(Hls.Events.FRAG_LOADED, function () {
-    hideError();
-    hideLoading();
-    fatalRetries = 0;
-    mediaRetries = 0;
-    lastFragLoadedAt = Date.now();
-    if (coldRetryTimer) { clearTimeout(coldRetryTimer); coldRetryTimer = null; }
-  });
-
-  // Track quality-level switches so the LIVE badge can quietly flag a slow
-  // connection when hls.js gets stuck on the lowest level.
+  // Listeners are kept as named functions so destroy() can hls.off() them.
+  // Without explicit unsubscribes, a stray late event firing into a half-
+  // destroyed hls instance throws — rare but ugly when it happens during
+  // app shutdown.
+  hls.on(Hls.Events.MANIFEST_PARSED, onManifestParsed);
+  hls.on(Hls.Events.LEVEL_LOADED, onLevelLoaded);
+  hls.on(Hls.Events.ERROR, onHlsError);
+  hls.on(Hls.Events.FRAG_LOADED, onFragLoaded);
   hls.on(Hls.Events.LEVEL_SWITCHED, onLevelSwitched);
+}
+
+function onManifestParsed() {
+  safePlay();
+  hideLoading();
+}
+
+// Force live edge on first level load. Without this, hls.js can start a few
+// segments back from live (the manifest's EXT-X-START or the head of the
+// live window), which surfaced as "showing yesterday's content for a few
+// seconds before catching up" on cold start.
+function onLevelLoaded(_e, data) {
+  if (!hls || !data || !data.details || !data.details.live) return;
+  const edge = hls.liveSyncPosition;
+  if (typeof edge === 'number' && isFinite(edge) &&
+      Math.abs(video.currentTime - edge) > 4) {
+    try { video.currentTime = edge; } catch (_) {}
+  }
+}
+
+function onHlsError(_event, data) {
+  if (!data.fatal) return;
+  switch (data.type) {
+    case Hls.ErrorTypes.NETWORK_ERROR:
+      if (fatalRetries >= MAX_FATAL_RETRIES) {
+        enterColdRetry();
+        return;
+      }
+      fatalRetries++;
+      showError(t('errNetwork', 'Reconnecting…'));
+      scheduleRetry(RETRY_DELAY_MS);
+      break;
+    case Hls.ErrorTypes.MEDIA_ERROR:
+      // Cap recovery attempts — without it, a wedged decoder on a weak TV
+      // chip would loop forever and leave "Recovering..." on screen with
+      // no exit. Counter resets on FRAG_LOADED so a transient glitch
+      // doesn't poison the budget for the rest of the session.
+      if (mediaRetries >= MAX_FATAL_RETRIES) {
+        showError(t('errMedia', 'Playback failed. Please restart the app.'));
+        return;
+      }
+      mediaRetries++;
+      showError(t('errRecovering', 'Recovering…'));
+      if (hls) hls.recoverMediaError();
+      break;
+    default:
+      showError(t('errFatal', 'Playback failed. Please restart the app.'));
+      break;
+  }
+}
+
+function onFragLoaded() {
+  hideError();
+  hideLoading();
+  fatalRetries = 0;
+  mediaRetries = 0;
+  lastFragLoadedAt = Date.now();
+  if (coldRetryTimer) { clearTimeout(coldRetryTimer); coldRetryTimer = null; }
 }
 
 function scheduleRetry(delay) {
@@ -401,6 +416,11 @@ function setupBadge() {
 // _DEBOUNCE_MS, whisper "Slow connection" under the LIVE badge. Quiet,
 // truthful — no alert, no red. The subtitle is appended/removed in the
 // existing badge so we don't introduce a new positioned element.
+//
+// NOTE: the production stream at STREAM_URL is currently a single-rendition
+// media playlist (one bitrate, no master), so hls.levels.length === 1 and
+// this code path is dormant. It's kept warm so the moment the origin adds
+// a second rendition the behavior lights up without any client change.
 
 function getSlowSubtitle() {
   return liveBadge ? liveBadge.querySelector('.live-slow') : null;
@@ -452,8 +472,14 @@ function maybeResume() {
   if (!hls) return;
   // No fragment yet → init is still in flight; nothing to resume.
   if (!lastFragLoadedAt) return;
-  const stale = Date.now() - lastFragLoadedAt;
+  const now = Date.now();
+  const stale = now - lastFragLoadedAt;
   if (stale < RESUME_STALENESS_MS) return;
+  // Debounce: pageshow + visibilitychange occasionally both fire on the same
+  // wake event. Without this guard we'd issue stopLoad/startLoad twice in
+  // quick succession, which hls.js handles but produces a visible re-buffer.
+  if (now - lastResumeAt < RESUME_DEBOUNCE_MS) return;
+  lastResumeAt = now;
   // Force a clean reload from the live edge. startLoad(-1) tells hls.js to
   // pick liveSyncPosition; the LEVEL_LOADED handler then snaps currentTime
   // if we're still drifted.
@@ -554,12 +580,16 @@ function flashStatePill(which) {
   void statePill.offsetWidth; // force reflow so the next class add re-plays the transition
   statePill.classList.add('show');
   if (statePillTimer) clearTimeout(statePillTimer);
+  if (statePillFadeTimer) { clearTimeout(statePillFadeTimer); statePillFadeTimer = null; }
   statePillTimer = setTimeout(function () {
     statePillTimer = null;
     statePill.classList.remove('show');
     // Wait for the fade-out transition to finish before fully hiding so
     // [hidden]{display:none} doesn't snap the pill out of view mid-fade.
-    setTimeout(function () { if (statePill) statePill.hidden = true; }, 300);
+    statePillFadeTimer = setTimeout(function () {
+      statePillFadeTimer = null;
+      if (statePill) statePill.hidden = true;
+    }, 300);
   }, STATE_PILL_HIDE_MS);
 }
 
@@ -718,8 +748,24 @@ function destroy() {
   if (nativeTimeout)   { clearTimeout(nativeTimeout);   nativeTimeout = null; }
   if (bufferingTimer)  { clearTimeout(bufferingTimer);  bufferingTimer = null; }
   if (statePillTimer)  { clearTimeout(statePillTimer);  statePillTimer = null; }
+  if (statePillFadeTimer) { clearTimeout(statePillFadeTimer); statePillFadeTimer = null; }
   if (slowConnectionTimer) { clearTimeout(slowConnectionTimer); slowConnectionTimer = null; }
-  if (hls)             { hls.destroy(); hls = null; }
+  // Best-effort abort: a still-pending prewarm fetch shouldn't outlive the
+  // page. If it already finished, abort() is a no-op.
+  if (prewarmXhr) { try { prewarmXhr.abort(); } catch (_) {} prewarmXhr = null; }
+  if (hls) {
+    // Unsubscribe before destroy so a late-firing event into a half-torn-down
+    // instance can't throw. Mirrors the on() registrations above.
+    try {
+      hls.off(Hls.Events.MANIFEST_PARSED, onManifestParsed);
+      hls.off(Hls.Events.LEVEL_LOADED, onLevelLoaded);
+      hls.off(Hls.Events.ERROR, onHlsError);
+      hls.off(Hls.Events.FRAG_LOADED, onFragLoaded);
+      hls.off(Hls.Events.LEVEL_SWITCHED, onLevelSwitched);
+    } catch (_) { /* hls already partially destroyed */ }
+    hls.destroy();
+    hls = null;
+  }
 }
 
 window.addEventListener('pagehide', destroy);

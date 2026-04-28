@@ -49,7 +49,7 @@ describe('tv-web player.js', () => {
 
   it('teardown: destroy() clears every timer and the hls instance', () => {
     const fn = playerJs.slice(playerJs.indexOf('function destroy'),
-                              playerJs.indexOf('function destroy') + 1500);
+                              playerJs.indexOf('function destroy') + 2500);
     assert.match(fn, /clearTimeout\(\s*retryTimer\s*\)/);
     assert.match(fn, /clearTimeout\(\s*brandingTimer\s*\)/);
     assert.match(fn, /clearTimeout\(\s*nativeTimeout\s*\)/);
