@@ -2,6 +2,7 @@ import {
   ALLOW_UNPINNED_SIGNATURES,
   GITHUB_OWNER,
   GITHUB_REPO,
+  REPO_CANDIDATES,
   TRUSTED_SIGNER_PUBLIC_KEYS,
   TRUSTED_SIGNERS,
 } from '../src/config.js';
@@ -52,6 +53,14 @@ for (const fp of TRUSTED_SIGNERS) {
 }
 if (!GITHUB_OWNER || !GITHUB_REPO) {
   fail('GITHUB_OWNER/GITHUB_REPO must be configured');
+}
+if (!Array.isArray(REPO_CANDIDATES) || REPO_CANDIDATES.length === 0) {
+  fail('REPO_CANDIDATES must include at least one candidate');
+}
+for (const c of REPO_CANDIDATES) {
+  if (!c || !c.owner || !c.repo || !c.branch) {
+    fail('REPO_CANDIDATES entries must include owner/repo/branch');
+  }
 }
 if (GITHUB_OWNER === 'iran-mirror' && GITHUB_REPO === 'iranopasmigirim') {
   fail('GITHUB_OWNER/GITHUB_REPO are still at default placeholder values');

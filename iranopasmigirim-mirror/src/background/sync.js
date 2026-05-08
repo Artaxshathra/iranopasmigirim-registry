@@ -17,7 +17,7 @@
 // the configured POLL_INTERVAL_MINUTES.
 
 import {
-  getTipCommit, getTree, fetchRaw, verifyCommit,
+  resolvePointer, getTree, fetchRaw, verifyCommit,
 } from './github.js';
 import {
   listPaths, getFile, putFile, deleteFile, getMeta, putMeta, putMetaBatch, stats, compactFiles,
@@ -72,7 +72,7 @@ export async function syncOnce({ force = false } = {}) {
   inFlight = (async () => {
     setStatus({ state: 'syncing', lastError: null, progress: { done: 0, total: 0 } });
     try {
-      const commit = await getTipCommit();
+      const commit = await resolvePointer();
       const lastSha = await getMeta('treeSha');
       if (!force && commit.treeSha === lastSha) {
         // Nothing changed since last poll. This is the common case and the
@@ -129,7 +129,7 @@ export async function syncOnce({ force = false } = {}) {
       for (let i = 0; i < writes.length; i++) {
         const blob = writes[i];
         try {
-          const buf = await fetchRaw(blob.path);
+          const buf = await fetchRaw(blob.path, commit.sha);
           if (buf.byteLength > MAX_FILE_SIZE_BYTES) {
             throw new Error(`downloaded size exceeds MAX_FILE_SIZE_BYTES for ${blob.path}`);
           }

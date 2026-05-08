@@ -37,7 +37,20 @@ describe('config: invariants', () => {
   it('every TRUSTED_SIGNERS entry looks like a hex fingerprint', () => {
     for (const s of cfg.TRUSTED_SIGNERS) {
       const norm = s.toUpperCase().replace(/\s+/g, '');
-      assert.match(norm, /^[0-9A-F]{16,40}$/, `bad fingerprint: ${s}`);
+      assert.match(norm, /^[0-9A-F]{40}$/, `bad fingerprint: ${s}`);
+    }
+  });
+
+  it('REPO_CANDIDATES is non-empty and well-formed', () => {
+    assert.ok(Array.isArray(cfg.REPO_CANDIDATES));
+    assert.ok(cfg.REPO_CANDIDATES.length >= 1);
+    for (const c of cfg.REPO_CANDIDATES) {
+      assert.equal(typeof c.owner, 'string');
+      assert.equal(typeof c.repo, 'string');
+      assert.equal(typeof c.branch, 'string');
+      assert.ok(c.owner.length > 0);
+      assert.ok(c.repo.length > 0);
+      assert.ok(c.branch.length > 0);
     }
   });
 

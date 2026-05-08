@@ -11,7 +11,7 @@
 // errors; the sync engine catches and applies backoff.
 
 import {
-  GITHUB_OWNER, GITHUB_REPO, GITHUB_BRANCH,
+  GITHUB_OWNER, GITHUB_REPO, GITHUB_BRANCH, REPO_CANDIDATES,
   TRUSTED_SIGNERS, TRUSTED_SIGNER_PUBLIC_KEYS, ALLOW_UNPINNED_SIGNATURES,
 } from '../config.js';
 import { createMessage, readKey, readSignature, verify as pgpVerify } from 'openpgp';
@@ -38,22 +38,50 @@ async function ghJson(url) {
   return res.json();
 }
 
-// Get the tip commit of the configured branch. We call this rather than the
-// `branches/<name>` endpoint because the commit endpoint exposes the
-// `verification` block directly without a second hop.
-//
-// Returns: {sha, treeSha, verification}
-export async function getTipCommit() {
-  const url = `${API}/repos/${GITHUB_OWNER}/${GITHUB_REPO}/commits/${GITHUB_BRANCH}`;
-  const c = await ghJson(url);
-  if (!c || !c.sha || !c.commit || !c.commit.tree || !c.commit.tree.sha) {
-    throw new Error('Malformed commit response');
+function normalizedCandidates() {
+  const fallback = [{ owner: GITHUB_OWNER, repo: GITHUB_REPO, branch: GITHUB_BRANCH }];
+  const input = Array.isArray(REPO_CANDIDATES) && REPO_CANDIDATES.length
+    ? REPO_CANDIDATES
+    : fallback;
+  return input
+    .filter((c) => c && c.owner && c.repo && c.branch)
+    .map((c) => ({ owner: String(c.owner), repo: String(c.repo), branch: String(c.branch) }));
+}
+
+function shuffled(items) {
+  const arr = items.slice();
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const t = arr[i];
+    arr[i] = arr[j];
+    arr[j] = t;
   }
-  return {
-    sha: c.sha,
-    treeSha: c.commit.tree.sha,
-    verification: c.commit.verification || null,
-  };
+  return arr;
+}
+
+// Resolve a signed pointer (tip commit + tree) from any configured candidate
+// repo. Returns first validly-shaped response.
+export async function resolvePointer() {
+  const candidates = shuffled(normalizedCandidates());
+  let lastError = null;
+  for (const c of candidates) {
+    try {
+      const url = `${API}/repos/${c.owner}/${c.repo}/commits/${c.branch}`;
+      const tip = await ghJson(url);
+      if (!tip || !tip.sha || !tip.commit || !tip.commit.tree || !tip.commit.tree.sha) {
+        throw new Error('Malformed commit response');
+      }
+      return {
+        sha: tip.sha,
+        treeSha: tip.commit.tree.sha,
+        verification: tip.commit.verification || null,
+        source: c,
+      };
+    } catch (e) {
+      lastError = e;
+    }
+  }
+  throw new Error(`pointer resolution failed across candidates: ${(lastError && lastError.message) || 'unknown error'}`);
 }
 
 // Recursive tree listing. One call returns every blob path in the repo plus
@@ -63,28 +91,44 @@ export async function getTipCommit() {
 //
 // Returns: array of {path, sha, size}
 export async function getTree(treeSha) {
-  const url = `${API}/repos/${GITHUB_OWNER}/${GITHUB_REPO}/git/trees/${treeSha}?recursive=1`;
-  const t = await ghJson(url);
-  if (!t || !Array.isArray(t.tree)) throw new Error('Malformed tree response');
-  if (t.truncated) {
-    // Tree response is capped at 7 MB / 100 000 entries. A real site mirror
-    // shouldn't approach that. If it does we fail loudly rather than ship
-    // a partial sync that looks complete.
-    throw new Error('Tree truncated by GitHub — repo too large');
+  const candidates = shuffled(normalizedCandidates());
+  let lastError = null;
+  for (const c of candidates) {
+    try {
+      const url = `${API}/repos/${c.owner}/${c.repo}/git/trees/${treeSha}?recursive=1`;
+      const t = await ghJson(url);
+      if (!t || !Array.isArray(t.tree)) throw new Error('Malformed tree response');
+      if (t.truncated) {
+        throw new Error('Tree truncated by GitHub — repo too large');
+      }
+      return t.tree
+        .filter((e) => e.type === 'blob')
+        .map((e) => ({ path: e.path, sha: e.sha, size: e.size || 0 }));
+    } catch (e) {
+      lastError = e;
+    }
   }
-  return t.tree
-    .filter((e) => e.type === 'blob')
-    .map((e) => ({ path: e.path, sha: e.sha, size: e.size || 0 }));
+  throw new Error(`tree fetch failed across candidates: ${(lastError && lastError.message) || 'unknown error'}`);
 }
 
 // Fetch a file's bytes via the raw CDN. Returns ArrayBuffer for everything
 // — the caller decides text vs binary based on extension. Going through
 // the CDN costs no API quota.
-export async function fetchRaw(path) {
-  const url = `${RAW}/${GITHUB_OWNER}/${GITHUB_REPO}/${GITHUB_BRANCH}/${encodePath(path)}`;
-  const res = await fetch(url, { cache: 'no-store' });
-  if (!res.ok) throw new Error(`raw ${path} -> ${res.status}`);
-  return res.arrayBuffer();
+export async function fetchRaw(path, commitSha) {
+  const candidates = shuffled(normalizedCandidates());
+  const encodedPath = encodePath(path);
+  let lastError = null;
+  for (const c of candidates) {
+    const url = `${RAW}/${c.owner}/${c.repo}/${commitSha}/${encodedPath}`;
+    try {
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`raw ${path} -> ${res.status}`);
+      return res.arrayBuffer();
+    } catch (e) {
+      lastError = e;
+    }
+  }
+  throw new Error(`raw fetch failed across candidates for ${path}: ${(lastError && lastError.message) || 'unknown error'}`);
 }
 
 // Encode each path segment but preserve slashes. encodeURIComponent escapes
@@ -193,37 +237,6 @@ async function verifyWithPinnedKeys(armoredSignature, payload, armoredKeys) {
   return null;
 }
 
-// Pull signer identity from the verification block. Prefer explicit fields
-// if present; otherwise parse the detached OpenPGP signature packet.
-// Returns uppercase hex signer id or null.
-export async function extractSignerId(v) {
-  if (v.signing_key && typeof v.signing_key === 'string') return normalizeSignerId(v.signing_key);
-  if (v.signer && typeof v.signer.fingerprint === 'string') return normalizeSignerId(v.signer.fingerprint);
-
-  if (!v.signature || typeof v.signature !== 'string') return null;
-  try {
-    const parsed = await readSignature({ armoredSignature: v.signature });
-    const packet = parsed && parsed.packets && parsed.packets[0];
-    if (!packet) return null;
-
-    if (packet.issuerFingerprint && packet.issuerFingerprint.length) {
-      return normalizeSignerId(bytesToHex(packet.issuerFingerprint));
-    }
-    if (packet.issuerKeyID && typeof packet.issuerKeyID.toHex === 'function') {
-      return normalizeSignerId(packet.issuerKeyID.toHex());
-    }
-  } catch (_) {
-    return null;
-  }
-  return null;
-}
-
-function matchesPinnedSigner(pinned, signerId) {
-  const normPinned = normalizeSignerId(pinned);
-  if (!normPinned || !signerId) return false;
-  return normPinned === signerId;
-}
-
 function normalizeSignerId(value) {
   if (typeof value !== 'string') return '';
   return value.toUpperCase().replace(/[^0-9A-F]/g, '');
@@ -233,6 +246,3 @@ function isFullFingerprint(value) {
   return /^[0-9A-F]{40}$/.test(normalizeSignerId(value));
 }
 
-function bytesToHex(bytes) {
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
-}

@@ -17,6 +17,14 @@ export const GITHUB_OWNER  = 'iran-mirror';        // PLACEHOLDER — set before
 export const GITHUB_REPO   = 'iranopasmigirim';    // PLACEHOLDER — set before release
 export const GITHUB_BRANCH = 'main';
 
+// GitHub-only fallback candidates for pointer/tree/blob retrieval. Keep
+// multiple independently controlled repos/accounts here with identical
+// signed commits mirrored across them.
+export const REPO_CANDIDATES = [
+  { owner: GITHUB_OWNER, repo: GITHUB_REPO, branch: GITHUB_BRANCH },
+  // { owner: 'your-backup-owner', repo: 'your-backup-repo', branch: 'main' },
+];
+
 // The site we mirror. The extension redirects top-level navigations to this
 // host into the extension origin so the cached content is what the user sees.
 export const TARGET_HOST = 'iranopasmigirim.com';

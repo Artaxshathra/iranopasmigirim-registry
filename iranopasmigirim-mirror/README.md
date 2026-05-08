@@ -46,6 +46,7 @@ The extension ships two pinned trust roots in `src/config.js`:
 
 1. `TRUSTED_SIGNERS`: full 40-hex fingerprints
 2. `TRUSTED_SIGNER_PUBLIC_KEYS`: armored OpenPGP public keys
+3. `REPO_CANDIDATES`: mirrored GitHub owner/repo/branch candidates
 
 Before ingesting a single byte, the extension:
 
@@ -55,6 +56,15 @@ Before ingesting a single byte, the extension:
   `TRUSTED_SIGNER_PUBLIC_KEYS`.
 4. Confirms the verified key fingerprint exactly matches one of
   `TRUSTED_SIGNERS`.
+
+Pointer/content separation (GitHub-only mode):
+- pointer: resolve tip commit/tree from any `REPO_CANDIDATES` entry
+- content: fetch blobs by immutable commit SHA from candidate repos
+- integrity: accept only when downloaded bytes match signed git blob SHA
+
+This improves resilience against single-repo/account takedown. Domain-level
+blocking of `api.github.com` and `raw.githubusercontent.com` remains a hard
+constraint in GitHub-only deployments.
 
 If any step fails the sync is aborted and the previous good cache is left
 in place. `ALLOW_UNPINNED_SIGNATURES` is hard-disabled in hardened builds.
