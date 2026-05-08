@@ -24,16 +24,13 @@
 
   "permissions": [
     "alarms",
-    "storage",
-    "webRequest",
-    "webRequestBlocking",
     "https://api.github.com/*",
     "https://raw.githubusercontent.com/*",
     "*://iranopasmigirim.com/*",
     "*://www.iranopasmigirim.com/*"
   ],
 
-  "web_accessible_resources": ["site/*", "popup/*"],
+  "web_accessible_resources": ["site/*"],
 
   "content_security_policy": "default-src 'self'; connect-src 'self' https://api.github.com https://raw.githubusercontent.com; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; object-src 'none'; base-uri 'self'",
 

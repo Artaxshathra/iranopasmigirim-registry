@@ -48,8 +48,9 @@ single byte, the extension:
 
 1. Fetches the tip commit's `verification` block from the GitHub API.
 2. Confirms `verification.verified === true` (GitHub's own attestation).
-3. Confirms the signing key fingerprint **matches one of the pinned
-   fingerprints in `TRUSTED_SIGNERS`**.
+3. Extracts signer identity from the detached OpenPGP signature packet and
+  confirms it **matches one of the pinned fingerprints/key-ids in
+  `TRUSTED_SIGNERS`**.
 
 If any step fails the sync is aborted and the previous good cache is left
 in place. **Rotating keys requires shipping a new extension version** —
@@ -67,7 +68,10 @@ npm install
 npm run build           # builds dist/chrome and dist/firefox
 npm run build:chrome    # just chrome
 npm run build:firefox   # just firefox
-npm test                # ~50 unit tests
+npm test                # 56 unit tests
+
+# release build gate (fails on insecure config)
+IPM_RELEASE=1 npm run build
 ```
 
 The build produces `dist/chrome/` (MV3) and `dist/firefox/` (MV2). The
@@ -126,6 +130,12 @@ useradd -r -s /usr/sbin/nologin mirror
 mkdir /srv/mirror-repo
 git clone <your repo> /srv/mirror-repo
 chown -R mirror:mirror /srv/mirror-repo
+mkdir -p /etc/mirror
+cat >/etc/mirror/secrets.env <<'EOF'
+MIRROR_KEYID=0xYOUR_LONG_KEY_ID
+GPG_PASSPHRASE=your-passphrase-if-needed
+EOF
+chmod 600 /etc/mirror/secrets.env
 systemctl daemon-reload
 systemctl enable --now mirror.timer
 journalctl -u mirror.service --since '1 hour ago'
@@ -175,5 +185,5 @@ pusher/
   mirror_and_push.py    # standalone alternative to the Action
   mirror.service        # systemd unit
   mirror.timer
-test/                   # ~50 unit tests, no browser needed
+test/                   # 56 unit tests, no browser needed
 ```

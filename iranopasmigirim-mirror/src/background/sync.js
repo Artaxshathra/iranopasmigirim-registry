@@ -83,7 +83,7 @@ export async function syncOnce({ force = false } = {}) {
       // Verify before we ingest a single byte. If verification fails, we
       // intentionally leave the existing cache alone — a hijacked GitHub
       // account or man-in-the-middle is exactly the threat model here.
-      const verdict = verifyCommit(commit);
+      const verdict = await verifyCommit(commit);
       if (!verdict.ok) {
         throw new Error(`signature: ${verdict.reason}`);
       }
@@ -109,27 +109,40 @@ export async function syncOnce({ force = false } = {}) {
       }
 
       setStatus({ progress: { done: 0, total: writes.length } });
+      const failedWrites = [];
+      let sawQuotaError = false;
 
       // Sequential download — concurrent fetches would overrun the CDN's
       // rate-limiter (rare but real) and clog the SW's event loop. The
       // sequential cost is fine: the tree-SHA short-circuit means we only
-      // hit this path on actual changes.
+      // hit this path on actual changes. Any write failure keeps treeSha
+      // unchanged so the next sync retries missing paths.
       for (let i = 0; i < writes.length; i++) {
         const blob = writes[i];
         try {
           const buf = await fetchRaw(blob.path);
-          if (buf.byteLength > MAX_FILE_SIZE_BYTES) continue;
+          if (buf.byteLength > MAX_FILE_SIZE_BYTES) {
+            throw new Error(`downloaded size exceeds MAX_FILE_SIZE_BYTES for ${blob.path}`);
+          }
+          const digest = await gitBlobShaHex(buf);
+          if (digest !== String(blob.sha || '').toLowerCase()) {
+            throw new Error(`blob sha mismatch for ${blob.path}`);
+          }
           await putFile(blob.path, {
             content: buf,
             sha: blob.sha,
           });
         } catch (e) {
-          // One bad file shouldn't kill the whole sync. We log and continue;
-          // the next sync will retry it (its sha will still differ from
-          // whatever we have, or it'll be missing entirely).
+          if (isQuotaError(e)) sawQuotaError = true;
+          failedWrites.push(blob.path);
           console.warn('[sync] write failed', blob.path, e && e.message);
         }
         setStatus({ progress: { done: i + 1, total: writes.length } });
+      }
+
+      if (failedWrites.length > 0) {
+        if (sawQuotaError) await putMeta('storageFull', true);
+        throw new Error(`sync incomplete: ${failedWrites.length} file(s) failed`);
       }
 
       for (const path of deletes) {
@@ -139,6 +152,7 @@ export async function syncOnce({ force = false } = {}) {
 
       await putMeta('treeSha', commit.treeSha);
       await putMeta('lastSyncAt', Date.now());
+      await putMeta('storageFull', false);
       await resetBackoff();
 
       setStatus({
@@ -183,10 +197,28 @@ async function resetBackoff() {
 export async function fullStatus() {
   const s = await stats();
   const last = (await getMeta('lastSyncAt')) || 0;
+  const storageFull = Boolean(await getMeta('storageFull'));
   return {
     ...status,
     lastSyncAt: status.lastSyncAt || last,
     fileCount: s.count,
     bytes: s.bytes,
+    storageFull,
   };
+}
+
+export function isQuotaError(err) {
+  const name = err && err.name ? String(err.name) : '';
+  const msg = err && err.message ? String(err.message).toLowerCase() : '';
+  return name === 'QuotaExceededError' || msg.includes('quota');
+}
+
+export async function gitBlobShaHex(arrayBuffer) {
+  const body = new Uint8Array(arrayBuffer);
+  const prefix = new TextEncoder().encode(`blob ${body.byteLength}\0`);
+  const joined = new Uint8Array(prefix.length + body.length);
+  joined.set(prefix, 0);
+  joined.set(body, prefix.length);
+  const digest = await crypto.subtle.digest('SHA-1', joined);
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
 }

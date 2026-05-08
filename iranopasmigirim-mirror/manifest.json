@@ -17,7 +17,6 @@
 
   "permissions": [
     "alarms",
-    "storage",
     "declarativeNetRequest"
   ],
 
@@ -30,8 +29,11 @@
 
   "web_accessible_resources": [
     {
-      "resources": ["site/*", "popup/*"],
-      "matches": ["<all_urls>"]
+      "resources": ["site/*"],
+      "matches": [
+        "*://iranopasmigirim.com/*",
+        "*://www.iranopasmigirim.com/*"
+      ]
     }
   ],
 

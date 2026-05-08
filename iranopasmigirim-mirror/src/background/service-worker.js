@@ -11,6 +11,7 @@ import { serve } from './serve.js';
 import { POLL_INTERVAL_MINUTES, TARGET_HOST, SERVE_PATH } from '../config.js';
 
 const ALARM_NAME = 'mirror-poll';
+const EXTENSION_ORIGIN = new URL(chrome.runtime.getURL('/')).origin;
 
 // On install: run sync immediately so the user sees content on first open
 // instead of an empty cache. Also schedule the alarm — chrome.alarms
@@ -30,6 +31,8 @@ chrome.runtime.onInstalled.addListener(async () => {
 // chrome.alarms persists, but if the user disabled+enabled the extension
 // it can get cleared.
 chrome.runtime.onStartup.addListener(async () => {
+  try { await installRedirectRule(); }
+  catch (e) { console.warn('[mirror] DNR rule refresh failed', e && e.message); }
   try { await schedule(POLL_INTERVAL_MINUTES); } catch (_) {}
 });
 
@@ -38,6 +41,7 @@ chrome.runtime.onStartup.addListener(async () => {
 // the latest backoff.
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name !== ALARM_NAME) return;
+  try { await installRedirectRule(); } catch (_) {}
   try {
     await syncOnce();
   } catch (_) {
@@ -123,11 +127,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 // top-level navigation to TARGET_HOST into chrome-extension://<id>/site/...,
 // at which point this handler takes over.
 self.addEventListener('fetch', (event) => {
-  const url = event.request.url;
-  // Quick string check before the URL parse to keep the hot path fast on
-  // every popup asset, every page resource, every nav.
-  if (!url.includes('/site/')) return;
-  event.respondWith(serveOrPassThrough(url));
+  let url;
+  try { url = new URL(event.request.url); }
+  catch (_) { return; }
+  if (url.origin !== EXTENSION_ORIGIN) return;
+  if (!url.pathname.startsWith(SERVE_PATH)) return;
+  event.respondWith(serveOrPassThrough(url.href));
 });
 
 async function serveOrPassThrough(url) {

@@ -14,6 +14,7 @@ import {
   GITHUB_OWNER, GITHUB_REPO, GITHUB_BRANCH,
   TRUSTED_SIGNERS, ALLOW_UNPINNED_SIGNATURES,
 } from '../config.js';
+import { readSignature } from 'openpgp';
 
 const API  = 'https://api.github.com';
 const RAW  = 'https://raw.githubusercontent.com';
@@ -106,7 +107,14 @@ function encodePath(path) {
 // mode) — flipping it false is the production gate.
 //
 // Returns: {ok: bool, reason: string}
-export function verifyCommit(commit) {
+export async function verifyCommit(commit, opts = {}) {
+  const trustedSigners = Array.isArray(opts.trustedSigners)
+    ? opts.trustedSigners
+    : TRUSTED_SIGNERS;
+  const allowUnpinned = typeof opts.allowUnpinned === 'boolean'
+    ? opts.allowUnpinned
+    : ALLOW_UNPINNED_SIGNATURES;
+
   const v = commit && commit.verification;
   if (!v) return { ok: false, reason: 'no verification block' };
   if (!v.verified) {
@@ -114,42 +122,67 @@ export function verifyCommit(commit) {
     // we surface for diagnostics — useful in the popup error display.
     return { ok: false, reason: `github: ${v.reason || 'unverified'}` };
   }
-  if (!TRUSTED_SIGNERS.length) {
-    if (ALLOW_UNPINNED_SIGNATURES) {
+  if (!trustedSigners.length) {
+    if (allowUnpinned) {
       return { ok: true, reason: 'unpinned (dev mode)' };
     }
     return { ok: false, reason: 'no trusted signers configured' };
   }
-  // GitHub's `payload` field is the signed git-commit object body, and
-  // `signature` is the detached PGP signature. We do not re-verify the
-  // signature ourselves — doing so in a service worker would require
-  // shipping an OpenPGP implementation just for one check, and the same
-  // public infrastructure (GitHub's trust DB) already did the math.
-  // Instead we trust GitHub's `verified=true` *and* require the signing
-  // key's identity (signer.id or payer / key id) to match our pin.
-  //
-  // GitHub returns `verification.signature` and a `payload` that includes
-  // the signer's gpg key ID in the signature header line. We require an
-  // explicit `verification.signer` field if present, otherwise fall back
-  // to extracting the long-id from the signature payload.
-  const fingerprint = extractFingerprint(v);
-  if (!fingerprint) return { ok: false, reason: 'cannot extract fingerprint' };
-  const norm = fingerprint.toUpperCase().replace(/\s+/g, '');
-  const ok = TRUSTED_SIGNERS.some(
-    (k) => k.toUpperCase().replace(/\s+/g, '') === norm
-  );
+
+  // GitHub REST verification objects expose `signature` and `payload`, but
+  // not a stable `fingerprint` field. We extract signer identity from the
+  // detached signature packet (issuer key-id/fingerprint), then compare it
+  // to a pinned TRUSTED_SIGNERS entry.
+  const signerId = await extractSignerId(v);
+  if (!signerId) return { ok: false, reason: 'cannot extract signer id' };
+
+  const norm = normalizeSignerId(signerId);
+  const ok = trustedSigners.some((pinned) => matchesPinnedSigner(pinned, norm));
   return ok
     ? { ok: true, reason: 'matched pinned signer' }
-    : { ok: false, reason: `unpinned signer ${norm.slice(0, 16)}…` };
+    : { ok: false, reason: `unpinned signer ${norm.slice(-16)}` };
 }
 
-// Pull the signing key identity out of GitHub's verification block. The
-// API returns this in different fields across endpoints; we check both.
-// Returns null if nothing recognizable is present.
-function extractFingerprint(v) {
-  // Newer responses include a fingerprint directly. Prefer it.
-  if (v.signing_key && typeof v.signing_key === 'string') return v.signing_key;
-  // Some responses wrap it under `signer`.
-  if (v.signer && v.signer.fingerprint) return v.signer.fingerprint;
+// Pull signer identity from the verification block. Prefer explicit fields
+// if present; otherwise parse the detached OpenPGP signature packet.
+// Returns uppercase hex signer id or null.
+export async function extractSignerId(v) {
+  if (v.signing_key && typeof v.signing_key === 'string') return normalizeSignerId(v.signing_key);
+  if (v.signer && typeof v.signer.fingerprint === 'string') return normalizeSignerId(v.signer.fingerprint);
+
+  if (!v.signature || typeof v.signature !== 'string') return null;
+  try {
+    const parsed = await readSignature({ armoredSignature: v.signature });
+    const packet = parsed && parsed.packets && parsed.packets[0];
+    if (!packet) return null;
+
+    if (packet.issuerFingerprint && packet.issuerFingerprint.length) {
+      return normalizeSignerId(bytesToHex(packet.issuerFingerprint));
+    }
+    if (packet.issuerKeyID && typeof packet.issuerKeyID.toHex === 'function') {
+      return normalizeSignerId(packet.issuerKeyID.toHex());
+    }
+  } catch (_) {
+    return null;
+  }
   return null;
+}
+
+function matchesPinnedSigner(pinned, signerId) {
+  const normPinned = normalizeSignerId(pinned);
+  if (!normPinned || !signerId) return false;
+  if (normPinned === signerId) return true;
+  // Allow full fingerprint pin compared to extracted long key-id suffix.
+  if (normPinned.length > signerId.length) return normPinned.endsWith(signerId);
+  if (signerId.length > normPinned.length) return signerId.endsWith(normPinned);
+  return false;
+}
+
+function normalizeSignerId(value) {
+  if (typeof value !== 'string') return '';
+  return value.toUpperCase().replace(/[^0-9A-F]/g, '');
+}
+
+function bytesToHex(bytes) {
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }

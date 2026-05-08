@@ -29,6 +29,8 @@ function baseHeaders(mime) {
     'x-content-type-options': 'nosniff',
     'referrer-policy': 'no-referrer',
     'cache-control': 'no-store',
+    'cross-origin-resource-policy': 'same-origin',
+    'permissions-policy': 'accelerometer=(), camera=(), geolocation=(), microphone=(), payment=(), usb=()',
     'content-security-policy': [
       "default-src 'self'",
       "script-src 'self' 'unsafe-inline'", // mirror sites use inline scripts
@@ -41,6 +43,8 @@ function baseHeaders(mime) {
       "worker-src 'self' blob:",
       "object-src 'none'",
       "base-uri 'self'",
+      "frame-ancestors 'none'",
+      "form-action 'self'",
     ].join('; '),
   };
 }

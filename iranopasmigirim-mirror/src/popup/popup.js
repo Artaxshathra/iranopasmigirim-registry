@@ -34,7 +34,7 @@ els.openSite.href = chrome.runtime.getURL(SERVE_PATH);
 // on initial load and on every status-update broadcast.
 function render(s) {
   if (!s) return;
-  const state = s.state || 'idle';
+  const state = s.storageFull ? 'warn' : (s.state || 'idle');
   els.statusValue.className = 'status-value ' + classForState(state);
   els.statusValue.textContent = labelForState(state);
 
@@ -51,7 +51,10 @@ function render(s) {
     els.progress.hidden = true;
   }
 
-  if (state === 'error' && s.lastError) {
+  if (s.storageFull) {
+    els.error.hidden = false;
+    els.error.textContent = 'Local storage is full. Free space and sync again.';
+  } else if (state === 'error' && s.lastError) {
     els.error.hidden = false;
     els.error.textContent = s.lastError;
   } else {
@@ -66,6 +69,7 @@ function classForState(state) {
     case 'ok':      return 'ok';
     case 'syncing': return 'busy';
     case 'error':   return 'err';
+    case 'warn':    return 'warn';
     default:        return '';
   }
 }
@@ -74,13 +78,14 @@ function labelForState(state) {
     case 'ok':      return 'up to date';
     case 'syncing': return 'syncing…';
     case 'error':   return 'error';
+    case 'warn':    return 'storage full';
     default:        return 'idle';
   }
 }
 
 function formatLastSync(ts) {
   if (!ts) return 'never';
-  const diff = Date.now() - ts;
+  const diff = Math.max(0, Date.now() - ts);
   if (diff < 60_000)        return 'just now';
   if (diff < 3_600_000)     return Math.floor(diff / 60_000) + ' min ago';
   if (diff < 86_400_000)    return Math.floor(diff / 3_600_000) + ' h ago';
@@ -91,7 +96,8 @@ function formatBytes(b) {
   if (b < 1024)            return b + ' B';
   if (b < 1024 * 1024)     return (b / 1024).toFixed(1) + ' KB';
   if (b < 1024 ** 3)       return (b / 1024 / 1024).toFixed(1) + ' MB';
-  return (b / 1024 / 1024 / 1024).toFixed(2) + ' GB';
+  if (b < 1024 ** 4)       return (b / 1024 / 1024 / 1024).toFixed(2) + ' GB';
+  return (b / 1024 / 1024 / 1024 / 1024).toFixed(2) + ' TB';
 }
 
 // Wire up the manual sync button. We don't render optimistically — the SW

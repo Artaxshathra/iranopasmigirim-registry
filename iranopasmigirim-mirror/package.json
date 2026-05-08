@@ -5,11 +5,14 @@
   "type": "module",
   "description": "Browser extension that mirrors a censored website locally via a signed GitHub repository.",
   "scripts": {
-    "build": "node build.js both",
-    "build:chrome": "node build.js chrome",
-    "build:firefox": "node build.js firefox",
+    "build": "node scripts/release-gate.js && node build.js both",
+    "build:chrome": "node scripts/release-gate.js && node build.js chrome",
+    "build:firefox": "node scripts/release-gate.js && node build.js firefox",
     "test": "node --test test/*.test.js",
     "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "openpgp": "^6.2.2"
   },
   "devDependencies": {
     "esbuild": "^0.24.0"
