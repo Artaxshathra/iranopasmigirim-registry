@@ -1,0 +1,41 @@
+# systemd unit — runs one mirror cycle. Pair with mirror.timer for cadence.
+#
+# Install:
+#   sudo cp mirror.service mirror.timer /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now mirror.timer
+#
+# Edit ExecStart and User to match your install. The repo path must be a
+# git checkout with push access (deploy key on disk, or HTTPS creds in
+# ~/.git-credentials owned by User).
+
+[Unit]
+Description=Mirror iranopasmigirim.com into signed git repo
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=mirror
+Group=mirror
+WorkingDirectory=/srv/mirror-repo
+# GPG passphrase from a 0600 file owned by User. Avoid env-vars in unit
+# files — they end up in journalctl readable by other admins.
+EnvironmentFile=/etc/mirror/secrets.env
+ExecStart=/usr/local/bin/mirror_and_push.py \
+    --target https://iranopasmigirim.com/ \
+    --repo /srv/mirror-repo \
+    --signing-key ${MIRROR_KEYID}
+# Don't accumulate log spam — only complain on actual error.
+StandardOutput=null
+StandardError=journal
+# Hard timeout so a stuck httrack can't pin the timer.
+TimeoutStartSec=20m
+
+# Hardening — minimal capabilities, restricted FS view.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ReadWritePaths=/srv/mirror-repo /var/log/mirror

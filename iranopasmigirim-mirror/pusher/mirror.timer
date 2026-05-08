@@ -1,0 +1,17 @@
+# systemd timer — fires mirror.service every 15 minutes.
+#
+# Persistent=true means a missed run during downtime fires once on boot.
+# RandomizedDelaySec spreads load so two operators running this from the
+# same VPS provider don't hammer the target host on the same second.
+
+[Unit]
+Description=Run mirror every 15 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=15min
+RandomizedDelaySec=60s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

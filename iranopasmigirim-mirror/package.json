@@ -1,0 +1,17 @@
+{
+  "name": "iranopasmigirim-mirror",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Browser extension that mirrors a censored website locally via a signed GitHub repository.",
+  "scripts": {
+    "build": "node build.js both",
+    "build:chrome": "node build.js chrome",
+    "build:firefox": "node build.js firefox",
+    "test": "node --test test/*.test.js",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0"
+  }
+}

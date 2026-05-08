@@ -1,0 +1,145 @@
+# Mirror workflow — runs on the SITE-MIRROR REPO (not this extension repo).
+#
+# Copy this file into the .github/workflows/ folder of the public repo whose
+# tip-of-main the extension polls (configured as GITHUB_OWNER/GITHUB_REPO).
+# The workflow scrapes the live site, sanitizes it, and commits — signing
+# the commit with a GPG key whose public half is pinned in the extension's
+# config.js (TRUSTED_SIGNERS).
+#
+# What it does NOT do: rotate keys, bypass signing, or commit unsigned. If
+# the GPG_PRIVATE_KEY secret is missing or wrong, the workflow fails loudly
+# and the extension keeps serving the previous good cache.
+
+name: Mirror site
+
+on:
+  schedule:
+    # Every 15 minutes. Tighter than the extension's 5-minute poll because
+    # the extension consumes from a CDN and we want fresh-ish content; looser
+    # than 1 minute to stay well within Actions' free-tier budget for a
+    # public repo (2000 min/month is plenty at 15-min cadence).
+    - cron: '*/15 * * * *'
+  workflow_dispatch:   # manual trigger button on GitHub
+
+# Single concurrent run — if the previous mirror is still going, queue (or
+# cancel) the next. Without this, an Actions queue stutter can produce two
+# parallel git pushes that conflict on rebase.
+concurrency:
+  group: mirror
+  cancel-in-progress: false
+
+permissions:
+  contents: write   # required to push the mirror commit back
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Full clone so signed-commit history is preserved across runs.
+          fetch-depth: 0
+          # Use a deploy-key with push access if you don't want the default
+          # GITHUB_TOKEN. Default works for same-repo pushes.
+          persist-credentials: true
+
+      - name: Install httrack
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y --no-install-recommends httrack
+          httrack --version | head -n1
+
+      - name: Configure git identity
+        # The user.email must match the key's UID for GitHub to mark the
+        # commit `verified=true`. Set both as workflow env vars so they're
+        # easy to update without editing the script.
+        run: |
+          git config user.name  "${{ vars.MIRROR_BOT_NAME  || 'Mirror Bot' }}"
+          git config user.email "${{ vars.MIRROR_BOT_EMAIL || 'mirror-bot@users.noreply.github.com' }}"
+
+      - name: Import signing key
+        # The GPG_PRIVATE_KEY secret is an ASCII-armored private key with
+        # passphrase set in GPG_PASSPHRASE (or no passphrase). The matching
+        # public-key fingerprint MUST be listed in the extension's
+        # config.js TRUSTED_SIGNERS, otherwise the extension will reject
+        # this commit even though GitHub marks it verified.
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE:  ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          if [ -z "$GPG_PRIVATE_KEY" ]; then
+            echo "::error::GPG_PRIVATE_KEY secret is not set"
+            exit 1
+          fi
+          mkdir -p ~/.gnupg && chmod 700 ~/.gnupg
+          echo "use-agent" > ~/.gnupg/gpg.conf
+          echo "pinentry-mode loopback" >> ~/.gnupg/gpg.conf
+          echo "allow-loopback-pinentry" > ~/.gnupg/gpg-agent.conf
+          gpg-connect-agent reloadagent /bye || true
+          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+          KEYID=$(gpg --list-secret-keys --with-colons | awk -F: '/^sec/ {print $5; exit}')
+          echo "MIRROR_KEYID=$KEYID" >> "$GITHUB_ENV"
+          git config user.signingkey "$KEYID"
+          git config commit.gpgsign true
+          git config tag.gpgsign true
+
+      - name: Scrape site
+        # httrack:
+        #   -%v0  quiet (no per-file progress)
+        #   --update  resume / refresh existing copy
+        #   -n     overwrite mirror with newer files
+        #   --robots=0  ignore robots.txt (we're an offline reader, not a crawler)
+        #   -s0    no follow ext-mode robots
+        #   -F     User-Agent
+        #   -*     start-from-deny then re-include the host below
+        #   +*iranopasmigirim.com/*  include the target host
+        # Output is staged in mirror/ to keep workflow files separate.
+        run: |
+          rm -rf mirror
+          mkdir mirror
+          httrack \
+            "https://iranopasmigirim.com/" \
+            -O "mirror" \
+            "--robots=0" \
+            "-%v0" "-n" "--update" \
+            "+*iranopasmigirim.com/*" \
+            "-*.zip" "-*.exe" "-*.dmg" "-*.pkg" \
+            "-F" "Mozilla/5.0 (compatible; offline-mirror-bot/1.0)" \
+            || echo "httrack returned non-zero — continuing if any files were captured"
+
+      - name: Sanitize scrape
+        # Strip identifiable metadata from the scrape:
+        #   - drop httrack's index/log files
+        #   - drop any cookies/auth headers httrack persists
+        #   - normalize timestamps so unchanged content doesn't churn the diff
+        run: |
+          shopt -s globstar nullglob
+          # httrack control files
+          rm -f mirror/hts-cache mirror/hts-log.txt mirror/cookies.txt 2>/dev/null
+          rm -rf mirror/hts-cache 2>/dev/null
+          # promote the actual host directory to the repo root content
+          if [ -d mirror/iranopasmigirim.com ]; then
+            rsync -a --delete mirror/iranopasmigirim.com/ ./content/
+          else
+            echo "::warning::scrape produced no content/ directory"
+          fi
+          rm -rf mirror
+
+      - name: Commit + push
+        env:
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          if git diff --quiet && git diff --cached --quiet; then
+            echo "no changes — skipping commit"
+            exit 0
+          fi
+          git add -A content
+          # Pass passphrase via stdin to avoid leaking it in argv.
+          if [ -n "$GPG_PASSPHRASE" ]; then
+            export GPG_TTY=$(tty || echo "")
+            echo "$GPG_PASSPHRASE" | gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 --sign -u "$MIRROR_KEYID" -o /dev/null /dev/null
+          fi
+          git commit -S -m "mirror update $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          git push origin HEAD

@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Mirror status</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <h1>Mirror</h1>
+    <p class="subtitle" id="subtitle">Offline copy of <span id="target-host"></span></p>
+  </header>
+
+  <section class="status-card" id="status-card">
+    <div class="status-row">
+      <span class="status-label">Status</span>
+      <span class="status-value" id="status-value">…</span>
+    </div>
+    <div class="status-row">
+      <span class="status-label">Last sync</span>
+      <span class="status-value" id="last-sync">never</span>
+    </div>
+    <div class="status-row">
+      <span class="status-label">Files</span>
+      <span class="status-value" id="file-count">—</span>
+    </div>
+    <div class="status-row">
+      <span class="status-label">Size</span>
+      <span class="status-value" id="size">—</span>
+    </div>
+
+    <div class="progress" id="progress" hidden>
+      <div class="progress-bar" id="progress-bar"></div>
+      <span class="progress-text" id="progress-text">0 / 0</span>
+    </div>
+
+    <p class="error" id="error" hidden></p>
+  </section>
+
+  <section class="actions">
+    <button id="sync-now" class="primary">Sync now</button>
+    <a id="open-site" class="secondary" href="#" target="_blank" rel="noopener">Open mirror</a>
+  </section>
+
+  <footer>
+    <p class="muted">Source: <span id="repo-source"></span></p>
+  </footer>
+
+  <script src="popup.js" type="module"></script>
+</body>
+</html>

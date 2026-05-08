@@ -1,0 +1,47 @@
+{
+  "manifest_version": 3,
+  "name": "Mirror — iranopasmigirim",
+  "short_name": "Mirror",
+  "description": "Read iranopasmigirim.com offline. Synced every few minutes from a public, signed GitHub repository.",
+  "version": "0.1.0",
+
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+
+  "action": {
+    "default_title": "Mirror status",
+    "default_popup": "popup/popup.html"
+  },
+
+  "permissions": [
+    "alarms",
+    "storage",
+    "declarativeNetRequest"
+  ],
+
+  "host_permissions": [
+    "https://api.github.com/*",
+    "https://raw.githubusercontent.com/*",
+    "*://iranopasmigirim.com/*",
+    "*://www.iranopasmigirim.com/*"
+  ],
+
+  "web_accessible_resources": [
+    {
+      "resources": ["site/*", "popup/*"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+
+  "content_security_policy": {
+    "extension_pages": "default-src 'self'; connect-src 'self' https://api.github.com https://raw.githubusercontent.com; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; object-src 'none'; base-uri 'self'"
+  },
+
+  "icons": {
+    "16":  "icons/icon16.png",
+    "48":  "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
