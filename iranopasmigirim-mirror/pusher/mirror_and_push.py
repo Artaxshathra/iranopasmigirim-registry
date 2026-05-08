@@ -169,9 +169,9 @@ def validate_repo_url(repo_url: str) -> str:
     v = repo_url.strip()
     if not v:
         die("repo-url cannot be empty")
-    allowed_prefixes = ("https://", "http://", "ssh://", "git@", "file://", "/")
+    allowed_prefixes = ("https://", "ssh://", "git@")
     if not v.startswith(allowed_prefixes):
-        die("repo-url looks invalid; expected https://, ssh://, git@, file://, or absolute path")
+        die("repo-url looks invalid; expected https://, ssh://, or git@")
     return v
 
 
@@ -216,6 +216,8 @@ def check_repo_remote(repo_url: str, branch: str) -> None:
     if probe.returncode != 0:
         err = (probe.stderr or "").strip() or "unable to access repository"
         die(f"repo-url check failed: {err}")
+    if not (probe.stdout or "").strip():
+        die(f"repo-url check failed: branch {branch!r} was not found on remote")
 
 
 def require_root() -> None:
@@ -265,8 +267,8 @@ def ensure_repo_checkout(repo_url: str, repo_path: Path, user: str, branch: str)
     if not (repo_path / ".git").is_dir():
         run_as_user(user, ["git", "clone", "-b", branch, repo_url, str(repo_path)])
     else:
-        run_as_user(user, ["git", "-C", str(repo_path), "fetch", "--all", "--prune"], check=False)
-        run_as_user(user, ["git", "-C", str(repo_path), "checkout", branch], check=False)
+        run_as_user(user, ["git", "-C", str(repo_path), "fetch", "--all", "--prune"])
+        run_as_user(user, ["git", "-C", str(repo_path), "checkout", branch])
     run(["chown", "-R", f"{user}:{user}", str(repo_path)])
 
 
@@ -426,6 +428,18 @@ def is_stream_url(url: str, blocked_exts: list[str]) -> bool:
 
 
 def sanitize_html_text(html: str, cfg: Config) -> str:
+    # Strip active script/embed surfaces for read-only mirror safety.
+    html = re.sub(r"<script\b[^>]*>.*?</script>", "", html, flags=re.IGNORECASE | re.DOTALL)
+    html = re.sub(r"<(iframe|object|embed)\b[^>]*>.*?</\1>", "", html, flags=re.IGNORECASE | re.DOTALL)
+    html = re.sub(r"\son[a-z]+\s*=\s*([\"']).*?\1", "", html, flags=re.IGNORECASE | re.DOTALL)
+    html = re.sub(r"\son[a-z]+\s*=\s*[^\s>]+", "", html, flags=re.IGNORECASE)
+    html = re.sub(
+        r"<meta\b([^>]*?)http-equiv\s*=\s*([\"']?)refresh\2([^>]*)>",
+        "",
+        html,
+        flags=re.IGNORECASE,
+    )
+
     # Disable all forms (read-only mirror policy).
     html = re.sub(
         r"<form\b([^>]*)>",
@@ -439,6 +453,9 @@ def sanitize_html_text(html: str, cfg: Config) -> str:
 
     def replace_attr(match: re.Match[str]) -> str:
         attr, quote, value = match.group(1), match.group(2), match.group(3)
+        lower_value = value.strip().lower()
+        if lower_value.startswith("javascript:") or lower_value.startswith("data:text/html"):
+            return f'{attr}={quote}/__mirror_blocked.html?reason=active-content{quote}'
         if is_payment_url(value, cfg.block_payment_domains):
             return f'{attr}={quote}/__mirror_blocked.html?reason=payment{quote}'
         if is_stream_url(value, cfg.block_stream_extensions):
@@ -607,7 +624,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     ensure_tools()
     run(["git", "rev-parse", "--is-inside-work-tree"], cwd=cfg.repo_path)
     run(["git", "remote", "get-url", cfg.git_remote], cwd=cfg.repo_path)
-    run(["gpg", "--list-secret-keys", cfg.signing_key], check=False)
+    run(["gpg", "--list-secret-keys", cfg.signing_key])
     print("doctor checks completed")
     return 0
 

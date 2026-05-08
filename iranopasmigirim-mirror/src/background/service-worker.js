@@ -12,6 +12,7 @@ import { POLL_INTERVAL_MINUTES, TARGET_HOST, SERVE_PATH } from '../config.js';
 
 const ALARM_NAME = 'mirror-poll';
 const EXTENSION_ORIGIN = new URL(chrome.runtime.getURL('/')).origin;
+const POPUP_PREFIX = chrome.runtime.getURL('popup/');
 let webRequestRedirectInstalled = false;
 
 // On install: run sync immediately so the user sees content on first open
@@ -143,6 +144,7 @@ function escapeReHost(host) {
 // request/response is reliable across restarts.
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || typeof msg.type !== 'string') return false;
+  if (sender && sender.id && sender.id !== chrome.runtime.id) return false;
   switch (msg.type) {
     case 'status': {
       fullStatus()
@@ -154,6 +156,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return true; // async response
     }
     case 'sync-now': {
+      if (!isTrustedSyncSender(sender)) {
+        try { sendResponse({ ok: false, error: 'forbidden sender' }); } catch (_) {}
+        return false;
+      }
       syncOnce({ force: true })
         .then(() => { try { sendResponse({ ok: true }); } catch (_) {} })
         .catch((e) => {
@@ -166,6 +172,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return false;
   }
 });
+
+function isTrustedSyncSender(sender) {
+  const url = sender && typeof sender.url === 'string' ? sender.url : '';
+  return url.startsWith(POPUP_PREFIX);
+}
 
 // Fetch interception — only fires for requests to our own extension origin.
 // declarativeNetRequest (configured in the manifest) is what redirects

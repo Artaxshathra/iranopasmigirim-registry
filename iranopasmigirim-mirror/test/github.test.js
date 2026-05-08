@@ -26,120 +26,101 @@ describe('verifyCommit: shape errors', () => {
   });
 });
 
-describe('verifyCommit: dev-mode (no pinned signers)', () => {
-  it('accepts a verified commit when ALLOW_UNPINNED_SIGNATURES is on', async () => {
-    // The default config has empty TRUSTED_SIGNERS and unpinned=true. This
-    // test pins that pre-release behavior so we don't accidentally ship
-    // with verification disabled.
-    const r = await verifyCommit({
-      verification: { verified: true, reason: 'valid', signing_key: 'AAAA' },
-    });
-    assert.equal(r.ok, true);
-    assert.match(r.reason, /unpinned/);
-  });
-});
-
-describe('verifyCommit: extracts fingerprint from common GitHub shapes', () => {
-  it('reads signing_key field directly', async () => {
-    // signing_key is the modern field name from the commits API.
-    const r = await verifyCommit({
-      verification: { verified: true, signing_key: '0123456789ABCDEF' },
-    }, {
-      trustedSigners: ['0123456789ABCDEF'],
-      allowUnpinned: false,
-    });
-    assert.equal(r.ok, true);
-  });
-
-  it('falls back to signer.fingerprint', async () => {
-    const r = await verifyCommit({
-      verification: { verified: true, signer: { fingerprint: '0123456789ABCDEF' } },
-    }, {
-      trustedSigners: ['0123456789ABCDEF'],
-      allowUnpinned: false,
-    });
-    assert.equal(r.ok, true);
-  });
-
-  it('fails cleanly when no signer id is recoverable in strict mode', async () => {
-    const r = await verifyCommit({
-      verification: { verified: true },
-    }, {
-      trustedSigners: ['0123456789ABCDEF'],
-      allowUnpinned: false,
-    });
-    assert.equal(r.ok, false);
-    assert.match(r.reason, /cannot extract signer id/);
-  });
-
-  it('extracts signer key id from detached signature packet', async () => {
-    const { privateKey } = await generateKey({
+describe('verifyCommit: strict pinned-key verification', () => {
+  async function makeSignedPayload() {
+    const { privateKey, publicKey } = await generateKey({
       type: 'rsa',
       rsaBits: 2048,
       userIDs: [{ name: 'mirror', email: 'mirror@example.com' }],
       format: 'armored',
     });
     const signingKey = await readPrivateKey({ armoredKey: privateKey });
-    const message = await createMessage({ text: 'tree deadbeef\n\nmessage\n' });
+    const payload = 'tree deadbeef\n\nmessage\n';
+    const message = await createMessage({ text: payload });
     const detachedSignature = await sign({
       message,
       signingKeys: signingKey,
       detached: true,
       format: 'armored',
     });
-    const keyId = signingKey.getKeyID().toHex().toUpperCase();
+    const fingerprint = signingKey.getFingerprint().toUpperCase();
+    return { payload, detachedSignature, publicKey, fingerprint };
+  }
 
-    const ok = await verifyCommit({
-      verification: {
-        verified: true,
-        signature: detachedSignature,
-        payload: 'tree deadbeef\n\nmessage\n',
-      },
-    }, {
-      trustedSigners: [keyId],
-      allowUnpinned: false,
-    });
-    assert.equal(ok.ok, true);
-
-    const bad = await verifyCommit({
-      verification: {
-        verified: true,
-        signature: detachedSignature,
-        payload: 'tree deadbeef\n\nmessage\n',
-      },
-    }, {
-      trustedSigners: ['AAAAAAAAAAAAAAAA'],
-      allowUnpinned: false,
-    });
-    assert.equal(bad.ok, false);
-    assert.match(bad.reason, /unpinned signer/);
-  });
-
-  it('accepts full fingerprint pin when verification exposes long key-id', async () => {
-    const keyId = '0123456789ABCDEF';
-    const pinnedFingerprint = `AAAAAAAAAAAAAAAAAAAAAAAA${keyId}`;
+  it('accepts when detached signature verifies with pinned key and fingerprint', async () => {
+    const data = await makeSignedPayload();
     const r = await verifyCommit({
       verification: {
         verified: true,
-        signing_key: keyId,
+        signature: data.detachedSignature,
+        payload: data.payload,
       },
     }, {
-      trustedSigners: [pinnedFingerprint],
+      trustedSigners: [data.fingerprint],
+      trustedSignerPublicKeys: [data.publicKey],
       allowUnpinned: false,
     });
     assert.equal(r.ok, true);
   });
 
-  it('still allows unpinned verified commits in explicit dev-mode options', async () => {
-    // With unpinned mode on, the missing fingerprint is fine — we already
-    // accepted GitHub's verdict. Nothing to extract is OK because nothing
-    // to compare against.
+  it('rejects when only short key-id pin is supplied', async () => {
+    const data = await makeSignedPayload();
+    const shortPin = data.fingerprint.slice(-16);
+    const r = await verifyCommit({
+      verification: {
+        verified: true,
+        signature: data.detachedSignature,
+        payload: data.payload,
+      },
+    }, {
+      trustedSigners: [shortPin],
+      trustedSignerPublicKeys: [data.publicKey],
+      allowUnpinned: false,
+    });
+    assert.equal(r.ok, false);
+    assert.match(r.reason, /full 40-hex/);
+  });
+
+  it('rejects when signature payload is missing', async () => {
+    const data = await makeSignedPayload();
+    const r = await verifyCommit({
+      verification: {
+        verified: true,
+      },
+    }, {
+      trustedSigners: [data.fingerprint],
+      trustedSignerPublicKeys: [data.publicKey],
+      allowUnpinned: false,
+    });
+    assert.equal(r.ok, false);
+    assert.match(r.reason, /missing detached signature payload/);
+  });
+
+  it('rejects when pinned fingerprint does not match verifying key', async () => {
+    const data = await makeSignedPayload();
+    const r = await verifyCommit({
+      verification: {
+        verified: true,
+        signature: data.detachedSignature,
+        payload: data.payload,
+      },
+    }, {
+      trustedSigners: ['AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'],
+      trustedSignerPublicKeys: [data.publicKey],
+      allowUnpinned: false,
+    });
+    assert.equal(r.ok, false);
+    assert.match(r.reason, /unpinned signer/);
+  });
+
+  it('explicitly allows unpinned mode only when opted-in', async () => {
     const r = await verifyCommit({
       verification: { verified: true },
     }, {
       trustedSigners: [],
+      trustedSignerPublicKeys: [],
       allowUnpinned: true,
     });
-    assert.equal(r.ok, true); // unpinned dev mode
+    assert.equal(r.ok, true);
   });
 });

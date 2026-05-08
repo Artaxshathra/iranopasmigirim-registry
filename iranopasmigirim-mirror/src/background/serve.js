@@ -33,14 +33,14 @@ function baseHeaders(mime) {
     'permissions-policy': 'accelerometer=(), camera=(), geolocation=(), microphone=(), payment=(), usb=()',
     'content-security-policy': [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline'", // mirror sites use inline scripts
+      "script-src 'none'",
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob:",
       "font-src 'self' data:",
       "media-src 'self' blob:",
       "connect-src 'self'",
-      "frame-src 'self'",
-      "worker-src 'self' blob:",
+      "frame-src 'none'",
+      "worker-src 'none'",
       "object-src 'none'",
       "base-uri 'self'",
       "frame-ancestors 'none'",

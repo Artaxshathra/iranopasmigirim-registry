@@ -11,7 +11,7 @@ Usage:
   ./build.sh chrome          # build chrome target only
   ./build.sh firefox         # build firefox target only
   ./build.sh test            # run unit tests
-  ./build.sh release         # release-gated build (IPM_RELEASE=1)
+  ./build.sh release         # alias of build (release-gated by default)
   ./build.sh ci              # install + test + build
   ./build.sh clean           # clean dist
 EOF
@@ -33,7 +33,7 @@ case "$cmd" in
     npm test
     ;;
   release)
-    IPM_RELEASE=1 npm run build
+    npm run build
     ;;
   ci)
     npm install

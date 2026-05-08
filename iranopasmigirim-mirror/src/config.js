@@ -51,7 +51,8 @@ export const MAINTENANCE_INTERVAL_HOURS = 24;
 // of someone allowed to publish updates. The verification path is:
 //   1. Fetch commit's `verification` field from GitHub API
 //   2. Confirm verification.verified === true
-//   3. Confirm verification.signature was made by one of these keys
+//   3. Verify signature payload locally against TRUSTED_SIGNER_PUBLIC_KEYS
+//   4. Confirm the verified key fingerprint is in TRUSTED_SIGNERS
 // (Step 3 is what makes us independent of GitHub's own trust judgement.)
 //
 // PLACEHOLDER — replace with the real key fingerprint(s) before release.
@@ -60,8 +61,14 @@ export const TRUSTED_SIGNERS = [
   // 'AAAA1111BBBB2222CCCC3333DDDD4444EEEE5555',
 ];
 
+// Armored OpenPGP public keys corresponding to TRUSTED_SIGNERS.
+// Keep this list in strict 1:1 operational sync with TRUSTED_SIGNERS.
+export const TRUSTED_SIGNER_PUBLIC_KEYS = [
+  // `-----BEGIN PGP PUBLIC KEY BLOCK-----\n...\n-----END PGP PUBLIC KEY BLOCK-----`,
+];
+
 // Feature flag: while TRUSTED_SIGNERS is empty (pre-release), we accept
 // GitHub's own verification verdict instead of a key match. This lets the
 // extension be useful during early development without a signing key yet.
 // Flip to false the moment you ship a real key.
-export const ALLOW_UNPINNED_SIGNATURES = true;
+export const ALLOW_UNPINNED_SIGNATURES = false;

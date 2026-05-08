@@ -43,8 +43,7 @@ describe('config: invariants', () => {
 
   it('production gate: ALLOW_UNPINNED_SIGNATURES is a boolean', () => {
     assert.equal(typeof cfg.ALLOW_UNPINNED_SIGNATURES, 'boolean');
-    // We allow it to be true during dev — the config comment explains the
-    // production gate. This test just pins the type so a typo can't
-    // silently turn verification off.
+    assert.equal(cfg.ALLOW_UNPINNED_SIGNATURES, false,
+      'ALLOW_UNPINNED_SIGNATURES must remain false in hardened builds');
   });
 });

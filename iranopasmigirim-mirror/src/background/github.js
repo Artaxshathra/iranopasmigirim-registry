@@ -12,9 +12,9 @@
 
 import {
   GITHUB_OWNER, GITHUB_REPO, GITHUB_BRANCH,
-  TRUSTED_SIGNERS, ALLOW_UNPINNED_SIGNATURES,
+  TRUSTED_SIGNERS, TRUSTED_SIGNER_PUBLIC_KEYS, ALLOW_UNPINNED_SIGNATURES,
 } from '../config.js';
-import { readSignature } from 'openpgp';
+import { createMessage, readKey, readSignature, verify as pgpVerify } from 'openpgp';
 
 const API  = 'https://api.github.com';
 const RAW  = 'https://raw.githubusercontent.com';
@@ -111,6 +111,9 @@ export async function verifyCommit(commit, opts = {}) {
   const trustedSigners = Array.isArray(opts.trustedSigners)
     ? opts.trustedSigners
     : TRUSTED_SIGNERS;
+  const trustedSignerPublicKeys = Array.isArray(opts.trustedSignerPublicKeys)
+    ? opts.trustedSignerPublicKeys
+    : TRUSTED_SIGNER_PUBLIC_KEYS;
   const allowUnpinned = typeof opts.allowUnpinned === 'boolean'
     ? opts.allowUnpinned
     : ALLOW_UNPINNED_SIGNATURES;
@@ -128,19 +131,66 @@ export async function verifyCommit(commit, opts = {}) {
     }
     return { ok: false, reason: 'no trusted signers configured' };
   }
+  if (!trustedSigners.every(isFullFingerprint)) {
+    return { ok: false, reason: 'trusted signers must be full 40-hex fingerprints' };
+  }
+  if (!trustedSignerPublicKeys.length) {
+    return { ok: false, reason: 'no trusted signer public keys configured' };
+  }
+  if (!v.signature || typeof v.signature !== 'string' || !v.payload || typeof v.payload !== 'string') {
+    return { ok: false, reason: 'missing detached signature payload' };
+  }
 
-  // GitHub REST verification objects expose `signature` and `payload`, but
-  // not a stable `fingerprint` field. We extract signer identity from the
-  // detached signature packet (issuer key-id/fingerprint), then compare it
-  // to a pinned TRUSTED_SIGNERS entry.
-  const signerId = await extractSignerId(v);
-  if (!signerId) return { ok: false, reason: 'cannot extract signer id' };
-
-  const norm = normalizeSignerId(signerId);
-  const ok = trustedSigners.some((pinned) => matchesPinnedSigner(pinned, norm));
+  const normalizedPins = trustedSigners.map(normalizeSignerId);
+  const matchedFingerprint = await verifyWithPinnedKeys(v.signature, v.payload, trustedSignerPublicKeys);
+  if (!matchedFingerprint) return { ok: false, reason: 'detached signature verification failed' };
+  const ok = normalizedPins.includes(normalizeSignerId(matchedFingerprint));
   return ok
     ? { ok: true, reason: 'matched pinned signer' }
-    : { ok: false, reason: `unpinned signer ${norm.slice(-16)}` };
+    : { ok: false, reason: `unpinned signer ${normalizeSignerId(matchedFingerprint).slice(-16)}` };
+}
+
+async function verifyWithPinnedKeys(armoredSignature, payload, armoredKeys) {
+  let signature;
+  try {
+    signature = await readSignature({ armoredSignature });
+  } catch (_) {
+    return null;
+  }
+
+  let message;
+  try {
+    message = await createMessage({ text: payload });
+  } catch (_) {
+    return null;
+  }
+
+  for (const armored of armoredKeys) {
+    let key;
+    try {
+      key = await readKey({ armoredKey: armored });
+    } catch (_) {
+      continue;
+    }
+
+    try {
+      const verified = await pgpVerify({
+        message,
+        signature,
+        verificationKeys: key,
+      });
+      if (!verified || !Array.isArray(verified.signatures)) continue;
+      for (const sig of verified.signatures) {
+        await sig.verified;
+        if (typeof key.getFingerprint === 'function') {
+          return normalizeSignerId(key.getFingerprint());
+        }
+      }
+    } catch (_) {
+      // Try next key.
+    }
+  }
+  return null;
 }
 
 // Pull signer identity from the verification block. Prefer explicit fields
@@ -171,21 +221,16 @@ export async function extractSignerId(v) {
 function matchesPinnedSigner(pinned, signerId) {
   const normPinned = normalizeSignerId(pinned);
   if (!normPinned || !signerId) return false;
-  if (normPinned === signerId) return true;
-  // Compatibility path: operators often pin a full fingerprint (40 hex)
-  // while signature packets expose only long key-id (16 hex).
-  if (normPinned.length === 40 && signerId.length === 16) {
-    return normPinned.endsWith(signerId);
-  }
-  if (normPinned.length === 16 && signerId.length === 40) {
-    return signerId.endsWith(normPinned);
-  }
-  return false;
+  return normPinned === signerId;
 }
 
 function normalizeSignerId(value) {
   if (typeof value !== 'string') return '';
   return value.toUpperCase().replace(/[^0-9A-F]/g, '');
+}
+
+function isFullFingerprint(value) {
+  return /^[0-9A-F]{40}$/.test(normalizeSignerId(value));
 }
 
 function bytesToHex(bytes) {

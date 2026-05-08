@@ -42,20 +42,25 @@ under the 60/hr unauthenticated limit.
 
 ## Trust model
 
-The extension's `src/config.js` ships an array of `TRUSTED_SIGNERS` — GPG key
-fingerprints of accounts allowed to publish updates. Before ingesting a
-single byte, the extension:
+The extension ships two pinned trust roots in `src/config.js`:
+
+1. `TRUSTED_SIGNERS`: full 40-hex fingerprints
+2. `TRUSTED_SIGNER_PUBLIC_KEYS`: armored OpenPGP public keys
+
+Before ingesting a single byte, the extension:
 
 1. Fetches the tip commit's `verification` block from the GitHub API.
-2. Confirms `verification.verified === true` (GitHub's own attestation).
-3. Extracts signer identity from the detached OpenPGP signature packet and
-  confirms it **matches one of the pinned fingerprints/key-ids in
-  `TRUSTED_SIGNERS`**.
+2. Confirms `verification.verified === true`.
+3. Verifies the detached signature payload locally using
+  `TRUSTED_SIGNER_PUBLIC_KEYS`.
+4. Confirms the verified key fingerprint exactly matches one of
+  `TRUSTED_SIGNERS`.
 
 If any step fails the sync is aborted and the previous good cache is left
-in place. **Rotating keys requires shipping a new extension version** —
-there is intentionally no in-extension key-update path, because that
-update path is exactly the surface a censor would target.
+in place. `ALLOW_UNPINNED_SIGNATURES` is hard-disabled in hardened builds.
+**Rotating keys requires shipping a new extension version**; there is
+intentionally no remote key-update path because that path would itself be
+the highest-value censorship attack surface.
 
 The extension never sends a request to `iranopasmigirim.com`. Only
 `api.github.com` and `raw.githubusercontent.com` are in the host
@@ -66,13 +71,14 @@ allowlist, enforced by manifest permissions and CSP.
 ```bash
 ./bootstrap.sh          # npm install
 ./build.sh test         # 56 unit tests
-./build.sh              # builds dist/chrome and dist/firefox
+./build.sh              # strict build (fails if trust config is insecure)
 ./build.sh chrome       # just chrome
 ./build.sh firefox      # just firefox
-
-# release build gate (fails on insecure config)
-./build.sh release
 ```
+
+`scripts/release-gate.js` is always enforced by build scripts. Build fails
+unless `TRUSTED_SIGNERS`, `TRUSTED_SIGNER_PUBLIC_KEYS`, `GITHUB_OWNER`, and
+`GITHUB_REPO` are configured securely.
 
 The build produces `dist/chrome/` (MV3) and `dist/firefox/` (MV2). The
 service worker, popup script, manifest, HTML, CSS, and icons are all
@@ -113,8 +119,9 @@ staged in.
    repo's `.github/workflows/`.
 6. Edit `src/config.js` in the **extension repo** (this one):
    - Set `GITHUB_OWNER` and `GITHUB_REPO`.
-   - Set `TRUSTED_SIGNERS` to `[<your fingerprint>]`.
-   - Flip `ALLOW_UNPINNED_SIGNATURES` to `false`.
+  - Set `TRUSTED_SIGNERS` to `[<your 40-char fingerprint>]`.
+  - Set `TRUSTED_SIGNER_PUBLIC_KEYS` to your armored public key block(s).
+  - Keep `ALLOW_UNPINNED_SIGNATURES` set to `false`.
 7. Rebuild and reinstall the extension.
 
 ## Producer App (your side)
