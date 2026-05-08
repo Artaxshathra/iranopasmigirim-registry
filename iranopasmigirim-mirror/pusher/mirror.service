@@ -23,9 +23,8 @@ WorkingDirectory=/srv/mirror-repo
 # files — they end up in journalctl readable by other admins.
 EnvironmentFile=/etc/mirror/secrets.env
 ExecStart=/usr/local/bin/mirror_and_push.py \
-    --target https://iranopasmigirim.com/ \
-    --repo /srv/mirror-repo \
-    --signing-key ${MIRROR_KEYID}
+    --config /etc/mirror/mirror.toml \
+    run-once
 # Don't accumulate log spam — only complain on actual error.
 StandardOutput=null
 StandardError=journal

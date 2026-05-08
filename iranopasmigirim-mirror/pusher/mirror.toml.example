@@ -1,0 +1,22 @@
+# Copy to /etc/mirror/mirror.toml and edit.
+
+target_url = "https://iranopasmigirim.com/"
+repo_path = "/srv/mirror-repo"
+content_subdir = "content"
+git_remote = "origin"
+git_branch = "main"
+interval_minutes = 15
+signing_key = "0xABCDEF1234567890"
+gpg_passphrase_env = "GPG_PASSPHRASE"
+user_agent = "Mozilla/5.0 (compatible; offline-mirror-bot/2.0)"
+exclude_patterns = ["-*.zip", "-*.exe", "-*.dmg", "-*.pkg"]
+min_files = 20
+max_files = 5000
+block_stream_extensions = [".m3u8", ".mpd", ".ism/manifest", ".f4m", ".ts"]
+block_payment_domains = [
+  "zarinpal.com",
+  "idpay.ir",
+  "nextpay.org",
+  "paypal.com",
+  "stripe.com",
+]

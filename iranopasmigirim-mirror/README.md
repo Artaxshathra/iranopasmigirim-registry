@@ -117,32 +117,74 @@ staged in.
    - Flip `ALLOW_UNPINNED_SIGNATURES` to `false`.
 7. Rebuild and reinstall the extension.
 
-## Self-hosting the mirror (alternative)
+## Producer App (your side)
 
-If you'd rather not run on GitHub Actions, the `pusher/` folder has a
-Python script + systemd unit. It does the same thing on any Linux box.
+The producer app is in `pusher/mirror_and_push.py`.
 
+It provides a clean CLI:
+- `init` creates config
+- `doctor` validates tools/config
+- `run-once` runs one full cycle (scrape -> sanitize -> signed commit -> push)
+- `daemon` runs continuously on a schedule
+
+### Step-by-step setup (Linux VPS)
+
+1. Install dependencies:
 ```bash
-# On a VPS, as root:
-cp pusher/mirror_and_push.py /usr/local/bin/
-cp pusher/mirror.service pusher/mirror.timer /etc/systemd/system/
-useradd -r -s /usr/sbin/nologin mirror
-mkdir /srv/mirror-repo
-git clone <your repo> /srv/mirror-repo
-chown -R mirror:mirror /srv/mirror-repo
-mkdir -p /etc/mirror
-cat >/etc/mirror/secrets.env <<'EOF'
-MIRROR_KEYID=0xYOUR_LONG_KEY_ID
-GPG_PASSPHRASE=your-passphrase-if-needed
-EOF
-chmod 600 /etc/mirror/secrets.env
-systemctl daemon-reload
-systemctl enable --now mirror.timer
-journalctl -u mirror.service --since '1 hour ago'
+sudo apt-get update -y
+sudo apt-get install -y --no-install-recommends python3 python3-venv git gpg httrack
 ```
 
-The unit is hardened (`ProtectSystem=strict`, `NoNewPrivileges`, etc.)
-so a compromised httrack run can't pivot off the box.
+2. Create runtime user and clone mirror repo:
+```bash
+sudo useradd -r -m -s /usr/sbin/nologin mirror || true
+sudo -u mirror mkdir -p /srv/mirror-repo
+sudo -u mirror git clone <your-mirror-repo-url> /srv/mirror-repo
+```
+
+3. Install producer app binary and configs:
+```bash
+sudo cp pusher/mirror_and_push.py /usr/local/bin/
+sudo chmod 755 /usr/local/bin/mirror_and_push.py
+sudo mkdir -p /etc/mirror
+sudo cp pusher/mirror.toml.example /etc/mirror/mirror.toml
+sudo cp pusher/mirror.service pusher/mirror.timer /etc/systemd/system/
+```
+
+4. Edit `/etc/mirror/mirror.toml`:
+- set `target_url`
+- set `repo_path`
+- set `signing_key`
+- set `git_branch`
+- review blocklists for `block_payment_domains` and `block_stream_extensions`
+
+5. Store passphrase securely (if key has one):
+```bash
+cat <<'EOF' | sudo tee /etc/mirror/secrets.env >/dev/null
+GPG_PASSPHRASE=your-passphrase-if-needed
+EOF
+sudo chmod 600 /etc/mirror/secrets.env
+sudo chown root:root /etc/mirror/secrets.env
+```
+
+6. Validate setup:
+```bash
+sudo -u mirror /usr/local/bin/mirror_and_push.py --config /etc/mirror/mirror.toml doctor
+```
+
+7. Run first cycle manually:
+```bash
+sudo -u mirror /usr/local/bin/mirror_and_push.py --config /etc/mirror/mirror.toml run-once
+```
+
+8. Enable periodic automatic runs:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now mirror.timer
+sudo journalctl -u mirror.service -f
+```
+
+The unit is hardened (`ProtectSystem=strict`, `NoNewPrivileges`, etc.) and the producer app is single-instance locked.
 
 ## Browse the mirror
 
@@ -182,7 +224,9 @@ build.js                # esbuild driver
 .github/workflows/
   mirror.yml            # COPY into the mirror repo, not used here
 pusher/
-  mirror_and_push.py    # standalone alternative to the Action
+  mirror_and_push.py    # producer CLI app (init/doctor/run-once/daemon)
+  mirror.toml.example   # producer config template
+  README.md             # producer quick reference
   mirror.service        # systemd unit
   mirror.timer
 test/                   # 56 unit tests, no browser needed

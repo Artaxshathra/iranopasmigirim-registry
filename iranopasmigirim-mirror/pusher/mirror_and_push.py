@@ -1,78 +1,185 @@
 #!/usr/bin/env python3
+"""mirror_and_push.py
+
+Producer-side mirror app.
+
+This CLI is intentionally single-file and stdlib-heavy for easier auditing.
+It supports:
+  - init: guided config bootstrap
+  - doctor: prerequisite checks
+  - run-once: scrape -> sanitize -> signed commit -> push
+  - daemon: periodic loop with lock to prevent overlap
 """
-Standalone mirror pusher — for users who'd rather run the mirror on their
-own infrastructure (a VPS, a home server) than on GitHub Actions.
 
-Behavior matches .github/workflows/mirror.yml:
-  1. httrack the target site into ./content/
-  2. sanitize (drop httrack control files, strip cookies, promote host dir)
-  3. git add + git commit -S (signed) + git push
-
-Usage:
-  ./mirror_and_push.py \\
-      --target https://iranopasmigirim.com/ \\
-      --repo  /srv/mirror-repo \\
-      --signing-key 0xABCDEF1234567890
-
-Run as a cron job every 10–15 minutes:
-  */15 * * * * cd /srv/mirror-repo && /usr/local/bin/mirror_and_push.py >> mirror.log 2>&1
-
-If the commit signature fails to verify against the extension's pinned
-fingerprint, the extension keeps serving the previous good cache. We do
-NOT add a fallback to commit unsigned — the trust boundary is exactly
-"only signed commits are honored".
-"""
+from __future__ import annotations
 
 import argparse
+import fcntl
 import os
+import re
 import shutil
 import subprocess
 import sys
+import tempfile
+import textwrap
+import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse
+
+DEFAULT_CONFIG = """# Mirror producer configuration
+
+target_url = "https://iranopasmigirim.com/"
+repo_path = "/srv/mirror-repo"
+content_subdir = "content"
+git_remote = "origin"
+git_branch = "main"
+
+# Run interval used by daemon mode only.
+interval_minutes = 15
+
+# GPG signing key id used for signed commits.
+signing_key = "0xABCDEF1234567890"
+
+# Environment variable containing gpg passphrase if key is passphrase-protected.
+gpg_passphrase_env = "GPG_PASSPHRASE"
+
+# Scraper behavior
+user_agent = "Mozilla/5.0 (compatible; offline-mirror-bot/2.0)"
+exclude_patterns = ["-*.zip", "-*.exe", "-*.dmg", "-*.pkg"]
+min_files = 20
+max_files = 5000
+
+# Fail-closed rewrite behavior for high-risk URL classes in mirrored HTML.
+block_stream_extensions = [".m3u8", ".mpd", ".ism/manifest", ".f4m", ".ts"]
+block_payment_domains = [
+  "zarinpal.com",
+  "idpay.ir",
+  "nextpay.org",
+  "paypal.com",
+  "stripe.com",
+]
+"""
 
 
-def run(cmd, cwd=None, check=True, env=None):
-    """Run a subprocess, surfacing stdout/stderr live so cron logs are useful."""
+@dataclass
+class Config:
+    target_url: str
+    repo_path: Path
+    content_subdir: str
+    git_remote: str
+    git_branch: str
+    interval_minutes: int
+    signing_key: str
+    gpg_passphrase_env: str
+    user_agent: str
+    exclude_patterns: list[str]
+    min_files: int
+    max_files: int
+    block_stream_extensions: list[str]
+    block_payment_domains: list[str]
+
+    @property
+    def content_path(self) -> Path:
+        return self.repo_path / self.content_subdir
+
+
+def run(cmd: list[str], cwd: Path | None = None, check: bool = True, env: dict[str, str] | None = None):
     print(f"$ {' '.join(cmd)}", flush=True)
-    return subprocess.run(cmd, cwd=cwd, check=check, env=env)
+    return subprocess.run(cmd, cwd=str(cwd) if cwd else None, check=check, env=env)
 
 
-def ensure_httrack():
-    """Fail fast if httrack isn't installed — we don't auto-install on a host."""
-    if shutil.which("httrack") is None:
-        sys.exit("httrack not found in PATH. Install: apt install httrack")
+def parse_toml_text(content: str) -> dict:
+    try:
+        import tomllib  # type: ignore[attr-defined]
+        return tomllib.loads(content)
+    except Exception:
+        try:
+            import tomli  # type: ignore[import-not-found]
+            return tomli.loads(content)
+        except Exception as exc:
+            raise SystemExit(
+                "TOML parser unavailable. Use Python 3.11+ or install tomli: pip install tomli"
+            ) from exc
 
 
-def scrape(target_url: str, dest: Path):
-    """Run httrack into a temp dir, then promote the host folder to content/."""
-    work = dest.parent / "_scrape"
-    if work.exists():
-        shutil.rmtree(work)
-    work.mkdir(parents=True)
-    run([
-        "httrack", target_url,
-        "-O", str(work),
-        "--robots=0", "-%v0", "-n", "--update",
-        f"+*{target_url.split('//', 1)[1].rstrip('/')}/*",
-        # Skip large binaries that bloat the repo with no value to readers.
-        "-*.zip", "-*.exe", "-*.dmg", "-*.pkg",
-        "-F", "Mozilla/5.0 (compatible; offline-mirror-bot/1.0)",
-    ], check=False)  # httrack exits non-zero on minor warnings; we check the output instead
+def load_config(path: Path) -> Config:
+    raw = parse_toml_text(path.read_text(encoding="utf-8"))
+    return Config(
+        target_url=str(raw["target_url"]),
+        repo_path=Path(str(raw["repo_path"])).expanduser().resolve(),
+        content_subdir=str(raw.get("content_subdir", "content")),
+        git_remote=str(raw.get("git_remote", "origin")),
+        git_branch=str(raw.get("git_branch", "main")),
+        interval_minutes=int(raw.get("interval_minutes", 15)),
+        signing_key=str(raw["signing_key"]),
+        gpg_passphrase_env=str(raw.get("gpg_passphrase_env", "GPG_PASSPHRASE")),
+        user_agent=str(raw.get("user_agent", "Mozilla/5.0 (compatible; offline-mirror-bot/2.0)")),
+        exclude_patterns=[str(x) for x in raw.get("exclude_patterns", [])],
+        min_files=int(raw.get("min_files", 20)),
+        max_files=int(raw.get("max_files", 5000)),
+        block_stream_extensions=[str(x).lower() for x in raw.get("block_stream_extensions", [])],
+        block_payment_domains=[str(x).lower() for x in raw.get("block_payment_domains", [])],
+    )
 
-    # httrack puts content in <work>/<host>/ — find that dir and rsync into dest.
-    candidates = [p for p in work.iterdir() if p.is_dir() and not p.name.startswith("hts-")]
+
+def validate_config(cfg: Config) -> None:
+    u = urlparse(cfg.target_url)
+    if u.scheme not in {"http", "https"} or not u.netloc:
+        raise SystemExit("target_url must be a full http(s) URL")
+    if not (cfg.repo_path / ".git").is_dir():
+        raise SystemExit(f"repo_path is not a git checkout: {cfg.repo_path}")
+    if cfg.interval_minutes < 1:
+        raise SystemExit("interval_minutes must be >= 1")
+    if cfg.min_files < 1 or cfg.max_files < cfg.min_files:
+        raise SystemExit("min_files/max_files values are invalid")
+    if not cfg.signing_key.strip():
+        raise SystemExit("signing_key must be set")
+
+
+def ensure_tools() -> None:
+    required = ["httrack", "git", "gpg"]
+    missing = [t for t in required if shutil.which(t) is None]
+    if missing:
+        raise SystemExit(f"missing required tools: {', '.join(missing)}")
+
+
+def advisory_safety_note() -> None:
+    print(
+        "[note] No mirror can guarantee zero abuse risk. This app is fail-closed by default for "
+        "known payment/stream patterns and strips interactive posting surfaces where possible.",
+        flush=True,
+    )
+
+
+def scrape_site(cfg: Config, stage_dir: Path) -> Path:
+    host = urlparse(cfg.target_url).netloc
+    cmd = [
+        "httrack",
+        cfg.target_url,
+        "-O",
+        str(stage_dir),
+        "--robots=0",
+        "-%v0",
+        "-n",
+        "--update",
+        f"+*{host.rstrip('/')}/*",
+        "-F",
+        cfg.user_agent,
+    ] + cfg.exclude_patterns
+    run(cmd, check=False)
+
+    candidates = [p for p in stage_dir.iterdir() if p.is_dir() and not p.name.startswith("hts-")]
     if not candidates:
-        sys.exit("scrape produced no host directory — aborting")
-    host_dir = candidates[0]
-    if dest.exists():
-        shutil.rmtree(dest)
-    shutil.copytree(host_dir, dest)
-    shutil.rmtree(work)
+        raise SystemExit("scrape produced no host directory")
+
+    # Pick the largest candidate directory as the host content root.
+    host_dir = max(candidates, key=lambda p: sum(1 for _ in p.rglob("*")))
+    return host_dir
 
 
-def sanitize(content_dir: Path):
-    """Drop scraper bookkeeping. Be conservative: never edit user content."""
+def clear_scraper_control_files(content_dir: Path) -> None:
     for name in ("hts-log.txt", "cookies.txt", "hts-cache"):
         p = content_dir / name
         if p.is_file():
@@ -81,50 +188,230 @@ def sanitize(content_dir: Path):
             shutil.rmtree(p)
 
 
-def commit_and_push(repo_dir: Path, signing_key: str, gpg_passphrase: str | None):
-    """Create a signed commit if there are changes, then push."""
-    # Stage everything.
-    run(["git", "add", "-A", "content"], cwd=repo_dir)
-    # Skip if no diff.
-    diff = subprocess.run(
-        ["git", "diff", "--cached", "--quiet"],
-        cwd=repo_dir,
+def is_payment_url(url: str, blocked_domains: list[str]) -> bool:
+    lower = url.lower()
+    return any(d in lower for d in blocked_domains)
+
+
+def is_stream_url(url: str, blocked_exts: list[str]) -> bool:
+    lower = url.lower()
+    return any(ext in lower for ext in blocked_exts)
+
+
+def sanitize_html_text(html: str, cfg: Config) -> str:
+    # Disable all forms (read-only mirror policy).
+    html = re.sub(
+        r"<form\b([^>]*)>",
+        r'<form\1 action="/__mirror_blocked.html?reason=form" method="get" onsubmit="return false;">',
+        html,
+        flags=re.IGNORECASE,
     )
+
+    # Disable payment/stream links and media URLs.
+    attr_re = re.compile(r"\b(href|src|poster)\s*=\s*([\"'])([^\"']+)\2", re.IGNORECASE)
+
+    def replace_attr(match: re.Match[str]) -> str:
+        attr, quote, value = match.group(1), match.group(2), match.group(3)
+        if is_payment_url(value, cfg.block_payment_domains):
+            return f'{attr}={quote}/__mirror_blocked.html?reason=payment{quote}'
+        if is_stream_url(value, cfg.block_stream_extensions):
+            return f'{attr}={quote}/__mirror_blocked.html?reason=stream{quote}'
+        return match.group(0)
+
+    return attr_re.sub(replace_attr, html)
+
+
+def write_blocked_page(content_dir: Path) -> None:
+    page = textwrap.dedent(
+        """\
+        <!doctype html>
+        <meta charset="utf-8">
+        <title>Unavailable in mirror</title>
+        <style>
+          body{font-family:system-ui,sans-serif;max-width:720px;margin:48px auto;padding:0 16px;line-height:1.6}
+          .card{border:1px solid #ddd;border-radius:10px;padding:18px}
+          h1{margin-top:0}
+        </style>
+        <div class="card">
+          <h1>This action is disabled in the mirror</h1>
+          <p>Interactive actions (payments, forms, live/stream URLs) are intentionally blocked in this read-only mirror.</p>
+          <p>Please use trusted direct channels for critical actions.</p>
+        </div>
+        """
+    )
+    (content_dir / "__mirror_blocked.html").write_text(page, encoding="utf-8")
+
+
+def sanitize_content(content_dir: Path, cfg: Config) -> None:
+    clear_scraper_control_files(content_dir)
+    write_blocked_page(content_dir)
+    for path in content_dir.rglob("*"):
+        if not path.is_file():
+            continue
+        if path.suffix.lower() not in {".html", ".htm", ".xhtml"}:
+            continue
+        try:
+            src = path.read_text(encoding="utf-8", errors="ignore")
+            out = sanitize_html_text(src, cfg)
+            if out != src:
+                path.write_text(out, encoding="utf-8")
+        except Exception as exc:
+            print(f"[warn] sanitize failed for {path}: {exc}", flush=True)
+
+
+def count_files(root: Path) -> int:
+    return sum(1 for p in root.rglob("*") if p.is_file())
+
+
+def sync_to_repo(cfg: Config, staged_host_dir: Path) -> None:
+    target = cfg.content_path
+    if target.exists():
+        shutil.rmtree(target)
+    shutil.copytree(staged_host_dir, target)
+
+
+def stage_and_commit(cfg: Config) -> bool:
+    run(["git", "add", "-A", cfg.content_subdir], cwd=cfg.repo_path)
+    diff = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=cfg.repo_path)
     if diff.returncode == 0:
-        print("no changes — nothing to commit", flush=True)
-        return
+        print("no changes — skipping commit", flush=True)
+        return False
+
     msg = "mirror update " + datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     env = os.environ.copy()
-    if gpg_passphrase:
-        # Pass via env to avoid argv leakage. The git config below tells gpg
-        # to read the passphrase from this var via gpg.conf / loopback.
-        env["GPG_PASSPHRASE"] = gpg_passphrase
-    run(["git", "commit", "-S", f"--gpg-sign={signing_key}", "-m", msg], cwd=repo_dir, env=env)
-    run(["git", "push", "origin", "HEAD"], cwd=repo_dir)
-
-
-def main():
-    ap = argparse.ArgumentParser(description="Mirror a website into a signed git repo.")
-    ap.add_argument("--target", required=True, help="URL of the site to mirror, e.g. https://iranopasmigirim.com/")
-    ap.add_argument("--repo", required=True, help="Path to a local checkout of the mirror git repo.")
-    ap.add_argument("--signing-key", required=True, help="GPG key id (long form, e.g. 0xABCDEF1234567890).")
-    ap.add_argument("--gpg-passphrase-env", default="GPG_PASSPHRASE", help="Env var name holding the GPG passphrase (or empty if no passphrase).")
-    args = ap.parse_args()
-
-    ensure_httrack()
-    repo = Path(args.repo).resolve()
-    if not (repo / ".git").is_dir():
-        sys.exit(f"{repo} is not a git checkout")
-    content = repo / "content"
-
-    scrape(args.target, content)
-    sanitize(content)
-    commit_and_push(
-        repo,
-        args.signing_key,
-        os.environ.get(args.gpg_passphrase_env) or None,
+    passphrase = os.environ.get(cfg.gpg_passphrase_env)
+    if passphrase:
+        env[cfg.gpg_passphrase_env] = passphrase
+    run(
+        ["git", "commit", "-S", f"--gpg-sign={cfg.signing_key}", "-m", msg],
+        cwd=cfg.repo_path,
+        env=env,
     )
+    run(["git", "push", cfg.git_remote, f"HEAD:{cfg.git_branch}"], cwd=cfg.repo_path)
+    return True
+
+
+def run_once(cfg: Config) -> int:
+    validate_config(cfg)
+    ensure_tools()
+    advisory_safety_note()
+
+    with tempfile.TemporaryDirectory(prefix="mirror_stage_") as td:
+        stage = Path(td)
+        host_dir = scrape_site(cfg, stage)
+        sanitize_content(host_dir, cfg)
+        files = count_files(host_dir)
+        if files < cfg.min_files:
+            raise SystemExit(f"scrape sanity check failed: only {files} files (min_files={cfg.min_files})")
+        if files > cfg.max_files:
+            raise SystemExit(f"scrape sanity check failed: {files} files (max_files={cfg.max_files})")
+        sync_to_repo(cfg, host_dir)
+
+    changed = stage_and_commit(cfg)
+    print("completed with changes" if changed else "completed without changes", flush=True)
+    return 0
+
+
+def acquire_lock(lock_path: Path):
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    fh = lock_path.open("w", encoding="utf-8")
+    try:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        raise SystemExit(f"another instance is running (lock: {lock_path})")
+    fh.write(str(os.getpid()))
+    fh.flush()
+    return fh
+
+
+def cmd_init(args: argparse.Namespace) -> int:
+    path = Path(args.config).expanduser().resolve()
+    if path.exists() and not args.force:
+        raise SystemExit(f"config exists: {path} (use --force to overwrite)")
+
+    target = input("Target URL [https://iranopasmigirim.com/]: ").strip() or "https://iranopasmigirim.com/"
+    repo = input("Local git repo path [/srv/mirror-repo]: ").strip() or "/srv/mirror-repo"
+    key = input("GPG signing key id [0xABCDEF1234567890]: ").strip() or "0xABCDEF1234567890"
+    branch = input("Git branch [main]: ").strip() or "main"
+
+    content = DEFAULT_CONFIG
+    content = content.replace('target_url = "https://iranopasmigirim.com/"', f'target_url = "{target}"')
+    content = content.replace('repo_path = "/srv/mirror-repo"', f'repo_path = "{repo}"')
+    content = content.replace('signing_key = "0xABCDEF1234567890"', f'signing_key = "{key}"')
+    content = content.replace('git_branch = "main"', f'git_branch = "{branch}"')
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    print(f"wrote config: {path}")
+    return 0
+
+
+def cmd_doctor(args: argparse.Namespace) -> int:
+    cfg = load_config(Path(args.config))
+    validate_config(cfg)
+    ensure_tools()
+    run(["git", "rev-parse", "--is-inside-work-tree"], cwd=cfg.repo_path)
+    run(["git", "remote", "get-url", cfg.git_remote], cwd=cfg.repo_path)
+    run(["gpg", "--list-secret-keys", cfg.signing_key], check=False)
+    print("doctor checks completed")
+    return 0
+
+
+def cmd_run_once(args: argparse.Namespace) -> int:
+    cfg = load_config(Path(args.config))
+    lock_path = cfg.repo_path / ".mirror_producer.lock"
+    lock = acquire_lock(lock_path)
+    try:
+        return run_once(cfg)
+    finally:
+        lock.close()
+
+
+def cmd_daemon(args: argparse.Namespace) -> int:
+    cfg = load_config(Path(args.config))
+    lock_path = cfg.repo_path / ".mirror_producer.lock"
+    lock = acquire_lock(lock_path)
+    try:
+        while True:
+            start = time.time()
+            try:
+                run_once(cfg)
+            except Exception as exc:  # noqa: BLE001
+                print(f"[error] run failed: {exc}", flush=True)
+            elapsed = time.time() - start
+            sleep_s = max(5, cfg.interval_minutes * 60 - int(elapsed))
+            print(f"sleeping {sleep_s}s", flush=True)
+            time.sleep(sleep_s)
+    finally:
+        lock.close()
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(description="Mirror producer app")
+    p.add_argument("--config", default="/etc/mirror/mirror.toml", help="path to config TOML")
+
+    sub = p.add_subparsers(dest="command", required=True)
+
+    init_p = sub.add_parser("init", help="write a starter config")
+    init_p.add_argument("--force", action="store_true", help="overwrite existing config")
+    init_p.set_defaults(func=cmd_init)
+
+    doc_p = sub.add_parser("doctor", help="check dependencies and configuration")
+    doc_p.set_defaults(func=cmd_doctor)
+
+    run_p = sub.add_parser("run-once", help="run one mirror cycle")
+    run_p.set_defaults(func=cmd_run_once)
+
+    daemon_p = sub.add_parser("daemon", help="run forever with interval_minutes cadence")
+    daemon_p.set_defaults(func=cmd_daemon)
+    return p
+
+
+def main() -> int:
+    parser = build_parser()
+    args = parser.parse_args()
+    return int(args.func(args))
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
