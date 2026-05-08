@@ -156,6 +156,10 @@ This performs the repeated/manual provisioning steps deterministically:
 - writes config under `/etc/mirror/mirror.toml`
 - installs and enables systemd timer
 
+Data hygiene is automatic and low-overhead:
+- sender: periodic local `git` maintenance prunes old unreachable objects
+- extension: periodic cache compaction removes malformed/oversized stale entries
+
 After setup:
 
 ```bash

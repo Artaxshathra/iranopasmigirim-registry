@@ -125,3 +125,42 @@ export async function putMetaBatch(entries) {
     t.onabort = () => reject(t.error);
   });
 }
+
+// Periodic hygiene sweep: remove malformed or oversized records so stale
+// bad entries cannot accumulate forever.
+export async function compactFiles(maxBytes) {
+  const store = await tx('files', 'readwrite');
+  return new Promise((resolve, reject) => {
+    let scanned = 0;
+    let removed = 0;
+    const cursorReq = store.openCursor();
+    cursorReq.onsuccess = (e) => {
+      const cursor = e.target.result;
+      if (!cursor) {
+        resolve({ scanned, removed });
+        return;
+      }
+
+      scanned++;
+      const value = cursor.value || {};
+      const size = value && value.content && typeof value.content.byteLength === 'number'
+        ? value.content.byteLength
+        : -1;
+      const sha = typeof value.sha === 'string' ? value.sha : '';
+      const validSha = /^[0-9a-f]{40}$/i.test(sha);
+      const shouldRemove = size < 0 || size > maxBytes || !validSha;
+      if (!shouldRemove) {
+        cursor.continue();
+        return;
+      }
+
+      const delReq = cursor.delete();
+      delReq.onsuccess = () => {
+        removed++;
+        cursor.continue();
+      };
+      delReq.onerror = () => reject(delReq.error);
+    };
+    cursorReq.onerror = () => reject(cursorReq.error);
+  });
+}

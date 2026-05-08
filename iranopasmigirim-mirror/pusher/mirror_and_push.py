@@ -52,6 +52,12 @@ exclude_patterns = ["-*.zip", "-*.exe", "-*.dmg", "-*.pkg"]
 min_files = 20
 max_files = 5000
 
+# Local repository housekeeping (sender side).
+# Run lightweight git maintenance at most once per this many hours.
+maintenance_interval_hours = 24
+# Prune unreachable git objects older than this many days.
+prune_after_days = 30
+
 # Fail-closed rewrite behavior for high-risk URL classes in mirrored HTML.
 block_stream_extensions = [".m3u8", ".mpd", ".ism/manifest", ".f4m", ".ts"]
 block_payment_domains = [
@@ -114,6 +120,8 @@ class Config:
     exclude_patterns: list[str]
     min_files: int
     max_files: int
+    maintenance_interval_hours: int
+    prune_after_days: int
     block_stream_extensions: list[str]
     block_payment_domains: list[str]
 
@@ -334,6 +342,8 @@ def load_config(path: Path) -> Config:
         exclude_patterns=[str(x) for x in raw.get("exclude_patterns", [])],
         min_files=int(raw.get("min_files", 20)),
         max_files=int(raw.get("max_files", 5000)),
+        maintenance_interval_hours=int(raw.get("maintenance_interval_hours", 24)),
+        prune_after_days=int(raw.get("prune_after_days", 30)),
         block_stream_extensions=[str(x).lower() for x in raw.get("block_stream_extensions", [])],
         block_payment_domains=[str(x).lower() for x in raw.get("block_payment_domains", [])],
     )
@@ -347,6 +357,10 @@ def validate_config(cfg: Config) -> None:
         die("interval_minutes must be >= 1")
     if cfg.min_files < 1 or cfg.max_files < cfg.min_files:
         die("min_files/max_files values are invalid")
+    if cfg.maintenance_interval_hours < 1:
+        die("maintenance_interval_hours must be >= 1")
+    if cfg.prune_after_days < 1:
+        die("prune_after_days must be >= 1")
     if not cfg.signing_key.strip():
         die("signing_key must be set")
 
@@ -504,6 +518,33 @@ def stage_and_commit(cfg: Config) -> bool:
     return True
 
 
+def repo_maintenance_due(marker_path: Path, interval_hours: int, now_s: int | None = None) -> bool:
+    now = int(time.time() if now_s is None else now_s)
+    if not marker_path.is_file():
+        return True
+    try:
+        last = int(marker_path.read_text(encoding="utf-8").strip() or "0")
+    except Exception:
+        return True
+    return (now - last) >= (interval_hours * 3600)
+
+
+def run_repo_maintenance(cfg: Config) -> None:
+    marker = cfg.repo_path / ".mirror_last_maintenance"
+    if not repo_maintenance_due(marker, cfg.maintenance_interval_hours):
+        return
+    prune = f"--prune={cfg.prune_after_days}.days.ago"
+    expire = f"--expire={cfg.prune_after_days}.days.ago"
+    try:
+        # Keep this lightweight and infrequent: we want bloat prevention,
+        # not an expensive maintenance step every cycle.
+        run(["git", "reflog", "expire", expire, "--all"], cwd=cfg.repo_path)
+        run(["git", "gc", "--auto", prune], cwd=cfg.repo_path)
+        marker.write_text(str(int(time.time())), encoding="utf-8")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[warn] maintenance skipped: {exc}", flush=True)
+
+
 def run_once(cfg: Config) -> int:
     validate_config(cfg)
     ensure_tools()
@@ -521,6 +562,7 @@ def run_once(cfg: Config) -> int:
         sync_to_repo(cfg, host_dir)
 
     changed = stage_and_commit(cfg)
+    run_repo_maintenance(cfg)
     print("completed with changes" if changed else "completed without changes", flush=True)
     return 0
 

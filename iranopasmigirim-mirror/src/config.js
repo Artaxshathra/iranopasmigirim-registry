@@ -43,6 +43,10 @@ export const MAX_BACKOFF_MINUTES = 60;
 // that lists 10 000 paths and would tie up the worker for hours.
 export const MAX_FILES_PER_SYNC = 2000;
 
+// Lightweight cache hygiene pass cadence. The cleanup run is intentionally
+// infrequent so normal sync performance is unaffected.
+export const MAINTENANCE_INTERVAL_HOURS = 24;
+
 // Trusted signing keys. Each entry is the ASCII-armored OpenPGP public key
 // of someone allowed to publish updates. The verification path is:
 //   1. Fetch commit's `verification` field from GitHub API

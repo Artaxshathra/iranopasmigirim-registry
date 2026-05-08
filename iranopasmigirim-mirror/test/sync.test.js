@@ -2,7 +2,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { gitBlobShaHex, isQuotaError } from '../src/background/sync.js';
+import { gitBlobShaHex, isQuotaError, shouldRunMaintenance } from '../src/background/sync.js';
 
 describe('sync: git blob hashing', () => {
   it('matches git hash-object for known content', async () => {
@@ -23,5 +23,22 @@ describe('sync: quota detection', () => {
 
   it('does not false-positive on regular errors', () => {
     assert.equal(isQuotaError(new Error('network failed')), false);
+  });
+});
+
+describe('sync: maintenance scheduling', () => {
+  it('runs when no previous timestamp exists', () => {
+    assert.equal(shouldRunMaintenance(0, 1000), true);
+    assert.equal(shouldRunMaintenance(null, 1000), true);
+  });
+
+  it('does not run before interval elapsed', () => {
+    const hour = 60 * 60 * 1000;
+    assert.equal(shouldRunMaintenance(10 * hour, 10 * hour + 23 * hour), false);
+  });
+
+  it('runs after interval elapsed', () => {
+    const hour = 60 * 60 * 1000;
+    assert.equal(shouldRunMaintenance(10 * hour, 10 * hour + 24 * hour), true);
   });
 });

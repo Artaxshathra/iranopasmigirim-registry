@@ -26,6 +26,10 @@ This command does deterministic, idempotent provisioning:
 - installs systemd unit/timer
 - enables `mirror.timer`
 
+Data hygiene policy (automatic):
+- Sender: local repo maintenance runs periodically (`maintenance_interval_hours`, default 24h) and prunes old unreachable git objects (`prune_after_days`, default 30).
+- Extension: cache maintenance runs periodically and removes malformed/oversized stale cache records.
+
 The setup is interactive and validates each input (repo URL, signing key,
 branch, interval). Invalid input is explained clearly and re-prompted.
 

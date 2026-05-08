@@ -20,11 +20,11 @@ import {
   getTipCommit, getTree, fetchRaw, verifyCommit,
 } from './github.js';
 import {
-  listPaths, getFile, putFile, deleteFile, getMeta, putMeta, putMetaBatch, stats,
+  listPaths, getFile, putFile, deleteFile, getMeta, putMeta, putMetaBatch, stats, compactFiles,
 } from './db.js';
 import {
   POLL_INTERVAL_MINUTES, MAX_BACKOFF_MINUTES,
-  MAX_FILE_SIZE_BYTES, MAX_FILES_PER_SYNC,
+  MAX_FILE_SIZE_BYTES, MAX_FILES_PER_SYNC, MAINTENANCE_INTERVAL_HOURS,
 } from '../config.js';
 
 // Single in-flight sync at a time. The alarm can fire while a previous
@@ -41,7 +41,15 @@ let status = {
   treeSha: null,
 };
 
+const MAINTENANCE_INTERVAL_MS = MAINTENANCE_INTERVAL_HOURS * 60 * 60 * 1000;
+
 export function getStatus() { return status; }
+
+export function shouldRunMaintenance(lastMaintenanceAt, now = Date.now()) {
+  const last = Number(lastMaintenanceAt || 0);
+  if (!Number.isFinite(last) || last <= 0) return true;
+  return (now - last) >= MAINTENANCE_INTERVAL_MS;
+}
 
 // Listeners are notified on every status change so the popup can re-render
 // without polling. We support a small fixed array of listeners — the popup
@@ -76,6 +84,7 @@ export async function syncOnce({ force = false } = {}) {
           progress: null,
         });
         await putMeta('lastSyncAt', Date.now());
+        await runMaintenanceIfDue();
         await resetBackoff();
         return { skipped: true };
       }
@@ -163,6 +172,7 @@ export async function syncOnce({ force = false } = {}) {
         ['lastSyncAt', now],
         ['storageFull', false],
       ]);
+      await runMaintenanceIfDue(now);
       await resetBackoff();
 
       setStatus({
@@ -182,6 +192,21 @@ export async function syncOnce({ force = false } = {}) {
     }
   })();
   return inFlight;
+}
+
+async function runMaintenanceIfDue(now = Date.now()) {
+  const lastMaintenanceAt = await getMeta('lastMaintenanceAt');
+  if (!shouldRunMaintenance(lastMaintenanceAt, now)) return;
+  try {
+    const { removed } = await compactFiles(MAX_FILE_SIZE_BYTES);
+    await putMeta('lastMaintenanceAt', now);
+    if (removed > 0) {
+      console.warn(`[sync] maintenance removed ${removed} stale file(s)`);
+    }
+  } catch (e) {
+    // Hygiene should never block content availability.
+    console.warn('[sync] maintenance failed', e && e.message);
+  }
 }
 
 // Backoff is stored in meta so it survives SW restarts. Returns the next

@@ -19,6 +19,8 @@ describe('config: invariants', () => {
     assert.ok(cfg.POLL_INTERVAL_MINUTES >= 1, 'too aggressive');
     assert.ok(cfg.POLL_INTERVAL_MINUTES <= 60, 'too lazy');
     assert.ok(cfg.MAX_BACKOFF_MINUTES >= cfg.POLL_INTERVAL_MINUTES);
+    assert.ok(cfg.MAINTENANCE_INTERVAL_HOURS >= 1, 'maintenance interval too aggressive');
+    assert.ok(cfg.MAINTENANCE_INTERVAL_HOURS <= 24 * 14, 'maintenance interval too lazy');
   });
 
   it('size and count caps are sane', () => {
