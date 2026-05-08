@@ -92,7 +92,7 @@ export function rewriteHtml(html) {
   // Anchored on the host string (with optional port) so we don't false-
   // positive on a substring inside text content.
   const hostEsc = TARGET_HOST.replace(/\./g, '\\.');
-  const re = new RegExp(`(https?:)?//${hostEsc}(:\\d+)?/`, 'gi');
+  const re = new RegExp(`(https?:)?//(?:www\\.)?${hostEsc}(:\\d+)?/`, 'gi');
   out = out.replace(re, SERVE_PATH);
   return out;
 }

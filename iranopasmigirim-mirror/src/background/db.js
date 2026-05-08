@@ -111,3 +111,17 @@ export async function putMeta(key, value) {
   const store = await tx('meta', 'readwrite');
   return req(store.put(value, key));
 }
+
+export async function putMetaBatch(entries) {
+  const db = await open();
+  const t = db.transaction('meta', 'readwrite');
+  const store = t.objectStore('meta');
+  for (const [key, value] of entries) {
+    store.put(value, key);
+  }
+  return new Promise((resolve, reject) => {
+    t.oncomplete = () => resolve();
+    t.onerror = () => reject(t.error);
+    t.onabort = () => reject(t.error);
+  });
+}

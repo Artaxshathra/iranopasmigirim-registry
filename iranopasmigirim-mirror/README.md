@@ -64,14 +64,14 @@ allowlist, enforced by manifest permissions and CSP.
 ## Build
 
 ```bash
-npm install
-npm run build           # builds dist/chrome and dist/firefox
-npm run build:chrome    # just chrome
-npm run build:firefox   # just firefox
-npm test                # 56 unit tests
+./bootstrap.sh          # npm install
+./build.sh test         # 56 unit tests
+./build.sh              # builds dist/chrome and dist/firefox
+./build.sh chrome       # just chrome
+./build.sh firefox      # just firefox
 
 # release build gate (fails on insecure config)
-IPM_RELEASE=1 npm run build
+./build.sh release
 ```
 
 The build produces `dist/chrome/` (MV3) and `dist/firefox/` (MV2). The

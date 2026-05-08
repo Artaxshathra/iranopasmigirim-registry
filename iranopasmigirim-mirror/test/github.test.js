@@ -115,6 +115,21 @@ describe('verifyCommit: extracts fingerprint from common GitHub shapes', () => {
     assert.match(bad.reason, /unpinned signer/);
   });
 
+  it('accepts full fingerprint pin when verification exposes long key-id', async () => {
+    const keyId = '0123456789ABCDEF';
+    const pinnedFingerprint = `AAAAAAAAAAAAAAAAAAAAAAAA${keyId}`;
+    const r = await verifyCommit({
+      verification: {
+        verified: true,
+        signing_key: keyId,
+      },
+    }, {
+      trustedSigners: [pinnedFingerprint],
+      allowUnpinned: false,
+    });
+    assert.equal(r.ok, true);
+  });
+
   it('still allows unpinned verified commits in explicit dev-mode options', async () => {
     // With unpinned mode on, the missing fingerprint is fine — we already
     // accepted GitHub's verdict. Nothing to extract is OK because nothing

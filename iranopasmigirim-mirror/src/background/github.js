@@ -172,9 +172,14 @@ function matchesPinnedSigner(pinned, signerId) {
   const normPinned = normalizeSignerId(pinned);
   if (!normPinned || !signerId) return false;
   if (normPinned === signerId) return true;
-  // Allow full fingerprint pin compared to extracted long key-id suffix.
-  if (normPinned.length > signerId.length) return normPinned.endsWith(signerId);
-  if (signerId.length > normPinned.length) return signerId.endsWith(normPinned);
+  // Compatibility path: operators often pin a full fingerprint (40 hex)
+  // while signature packets expose only long key-id (16 hex).
+  if (normPinned.length === 40 && signerId.length === 16) {
+    return normPinned.endsWith(signerId);
+  }
+  if (normPinned.length === 16 && signerId.length === 40) {
+    return signerId.endsWith(normPinned);
+  }
   return false;
 }
 

@@ -78,11 +78,7 @@ describe('serve: rewriteHtml — absolute URL rewrites', () => {
   });
 
   it('rewrites the www subdomain', () => {
-    // The DNR redirect already handles www.TARGET_HOST → /site/, but inline
-    // href references inside HTML can also be www. The current regex only
-    // matches the bare TARGET_HOST — this test pins that contract so a
-    // future change either keeps it or updates the test.
-    const out = rewriteHtml(`<a href="https://${TARGET_HOST}/x">a</a>`);
+    const out = rewriteHtml(`<a href="https://www.${TARGET_HOST}/x">a</a>`);
     assert.match(out, /href="\/site\/x"/);
   });
 

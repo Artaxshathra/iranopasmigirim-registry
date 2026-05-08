@@ -24,6 +24,8 @@
 
   "permissions": [
     "alarms",
+    "webRequest",
+    "webRequestBlocking",
     "https://api.github.com/*",
     "https://raw.githubusercontent.com/*",
     "*://iranopasmigirim.com/*",

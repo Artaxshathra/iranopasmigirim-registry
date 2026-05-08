@@ -20,7 +20,7 @@ import {
   getTipCommit, getTree, fetchRaw, verifyCommit,
 } from './github.js';
 import {
-  listPaths, getFile, putFile, deleteFile, getMeta, putMeta, stats,
+  listPaths, getFile, putFile, deleteFile, getMeta, putMeta, putMetaBatch, stats,
 } from './db.js';
 import {
   POLL_INTERVAL_MINUTES, MAX_BACKOFF_MINUTES,
@@ -145,19 +145,29 @@ export async function syncOnce({ force = false } = {}) {
         throw new Error(`sync incomplete: ${failedWrites.length} file(s) failed`);
       }
 
+      const failedDeletes = [];
       for (const path of deletes) {
         try { await deleteFile(path); }
-        catch (e) { console.warn('[sync] delete failed', path, e && e.message); }
+        catch (e) {
+          failedDeletes.push(path);
+          console.warn('[sync] delete failed', path, e && e.message);
+        }
+      }
+      if (failedDeletes.length > 0) {
+        throw new Error(`delete incomplete: ${failedDeletes.length} file(s) failed`);
       }
 
-      await putMeta('treeSha', commit.treeSha);
-      await putMeta('lastSyncAt', Date.now());
-      await putMeta('storageFull', false);
+      const now = Date.now();
+      await putMetaBatch([
+        ['treeSha', commit.treeSha],
+        ['lastSyncAt', now],
+        ['storageFull', false],
+      ]);
       await resetBackoff();
 
       setStatus({
         state: 'ok',
-        lastSyncAt: Date.now(),
+        lastSyncAt: now,
         treeSha: commit.treeSha,
         progress: null,
       });

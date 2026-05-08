@@ -12,6 +12,7 @@ import { POLL_INTERVAL_MINUTES, TARGET_HOST, SERVE_PATH } from '../config.js';
 
 const ALARM_NAME = 'mirror-poll';
 const EXTENSION_ORIGIN = new URL(chrome.runtime.getURL('/')).origin;
+let webRequestRedirectInstalled = false;
 
 // On install: run sync immediately so the user sees content on first open
 // instead of an empty cache. Also schedule the alarm — chrome.alarms
@@ -67,6 +68,10 @@ async function schedule(minutes) {
 // extension or upgrading the version must not leave duplicate rules.
 const REDIRECT_RULE_ID = 1;
 async function installRedirectRule() {
+  if (!chrome.declarativeNetRequest || !chrome.declarativeNetRequest.updateDynamicRules) {
+    installWebRequestRedirect();
+    return;
+  }
   const extOrigin = chrome.runtime.getURL('').replace(/\/$/, ''); // chrome-extension://<id>
   const rule = {
     id: REDIRECT_RULE_ID,
@@ -96,6 +101,39 @@ async function installRedirectRule() {
   });
 }
 
+function installWebRequestRedirect() {
+  if (webRequestRedirectInstalled) return;
+  if (!chrome.webRequest || !chrome.webRequest.onBeforeRequest) return;
+
+  const listener = (details) => {
+    const extOrigin = chrome.runtime.getURL('').replace(/\/$/, '');
+    let url;
+    try { url = new URL(details.url); }
+    catch (_) { return; }
+
+    const host = url.hostname.toLowerCase();
+    const target = TARGET_HOST.toLowerCase();
+    const isMatch = host === target || host === `www.${target}`;
+    if (!isMatch) return;
+
+    const tail = `${url.pathname}${url.search}${url.hash}`.replace(/^\//, '');
+    return { redirectUrl: `${extOrigin}${SERVE_PATH}${tail}` };
+  };
+
+  chrome.webRequest.onBeforeRequest.addListener(
+    listener,
+    {
+      urls: [
+        `*://${TARGET_HOST}/*`,
+        `*://www.${TARGET_HOST}/*`,
+      ],
+      types: ['main_frame', 'sub_frame'],
+    },
+    ['blocking']
+  );
+  webRequestRedirectInstalled = true;
+}
+
 function escapeReHost(host) {
   return host.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -107,14 +145,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || typeof msg.type !== 'string') return false;
   switch (msg.type) {
     case 'status': {
-      fullStatus().then(sendResponse).catch((e) =>
-        sendResponse({ state: 'error', lastError: e && e.message }));
+      fullStatus()
+        .then((data) => { try { sendResponse(data); } catch (_) {} })
+        .catch((e) => {
+          try { sendResponse({ state: 'error', lastError: e && e.message }); }
+          catch (_) {}
+        });
       return true; // async response
     }
     case 'sync-now': {
       syncOnce({ force: true })
-        .then(() => sendResponse({ ok: true }))
-        .catch((e) => sendResponse({ ok: false, error: e && e.message }));
+        .then(() => { try { sendResponse({ ok: true }); } catch (_) {} })
+        .catch((e) => {
+          try { sendResponse({ ok: false, error: e && e.message }); }
+          catch (_) {}
+        });
       return true;
     }
     default:
