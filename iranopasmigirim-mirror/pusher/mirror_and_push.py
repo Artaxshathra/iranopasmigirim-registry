@@ -127,6 +127,89 @@ def run(cmd: list[str], cwd: Path | None = None, check: bool = True, env: dict[s
     return subprocess.run(cmd, cwd=str(cwd) if cwd else None, check=check, env=env)
 
 
+def die(msg: str) -> None:
+    raise SystemExit(msg)
+
+
+def validate_target_url(url: str) -> str:
+    u = urlparse(url.strip())
+    if u.scheme not in {"http", "https"} or not u.netloc:
+        die(f"invalid target URL: {url!r} (must be full http(s) URL)")
+    return url.strip()
+
+
+def validate_branch_name(name: str) -> str:
+    n = name.strip()
+    if not n:
+        die("branch cannot be empty")
+    if n.startswith("-") or ".." in n or " " in n:
+        die(f"invalid branch name: {name!r}")
+    return n
+
+
+def validate_signing_key(key: str) -> str:
+    k = key.strip().upper()
+    if k.startswith("0X"):
+        k = "0x" + k[2:]
+    raw = k[2:] if k.startswith("0x") else k
+    if not re.fullmatch(r"[0-9A-F]{8,40}", raw):
+        die("signing-key must be 8-40 hex chars (optionally prefixed with 0x)")
+    return k
+
+
+def validate_repo_url(repo_url: str) -> str:
+    v = repo_url.strip()
+    if not v:
+        die("repo-url cannot be empty")
+    allowed_prefixes = ("https://", "http://", "ssh://", "git@", "file://", "/")
+    if not v.startswith(allowed_prefixes):
+        die("repo-url looks invalid; expected https://, ssh://, git@, file://, or absolute path")
+    return v
+
+
+def validate_interval_minutes(value: int) -> int:
+    if value < 1 or value > 1440:
+        die("interval must be between 1 and 1440 minutes")
+    return value
+
+
+def prompt_value(label: str, default: str) -> str:
+    raw = input(f"{label} [{default}]: ").strip()
+    return raw if raw else default
+
+
+def prompt_validated(label: str, default: str, validator):
+    while True:
+        value = prompt_value(label, default)
+        try:
+            return validator(value)
+        except SystemExit as exc:
+            print(f"[input error] {exc}", flush=True)
+
+
+def prompt_int(label: str, default: int, validator):
+    while True:
+        raw = prompt_value(label, str(default))
+        try:
+            return validator(int(raw))
+        except ValueError:
+            print("[input error] value must be an integer", flush=True)
+        except SystemExit as exc:
+            print(f"[input error] {exc}", flush=True)
+
+
+def check_repo_remote(repo_url: str, branch: str) -> None:
+    probe = subprocess.run(
+        ["git", "ls-remote", "--heads", repo_url, branch],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if probe.returncode != 0:
+        err = (probe.stderr or "").strip() or "unable to access repository"
+        die(f"repo-url check failed: {err}")
+
+
 def require_root() -> None:
     if os.geteuid() != 0:
         raise SystemExit("setup-system must run as root")
@@ -257,17 +340,15 @@ def load_config(path: Path) -> Config:
 
 
 def validate_config(cfg: Config) -> None:
-    u = urlparse(cfg.target_url)
-    if u.scheme not in {"http", "https"} or not u.netloc:
-        raise SystemExit("target_url must be a full http(s) URL")
+    validate_target_url(cfg.target_url)
     if not (cfg.repo_path / ".git").is_dir():
-        raise SystemExit(f"repo_path is not a git checkout: {cfg.repo_path}")
+        die(f"repo_path is not a git checkout: {cfg.repo_path}")
     if cfg.interval_minutes < 1:
-        raise SystemExit("interval_minutes must be >= 1")
+        die("interval_minutes must be >= 1")
     if cfg.min_files < 1 or cfg.max_files < cfg.min_files:
-        raise SystemExit("min_files/max_files values are invalid")
+        die("min_files/max_files values are invalid")
     if not cfg.signing_key.strip():
-        raise SystemExit("signing_key must be set")
+        die("signing_key must be set")
 
 
 def ensure_tools() -> None:
@@ -520,6 +601,28 @@ def cmd_daemon(args: argparse.Namespace) -> int:
 
 def cmd_setup_system(args: argparse.Namespace) -> int:
     require_root()
+
+    if args.interactive:
+        print("[setup] interactive mode enabled", flush=True)
+        args.repo_url = prompt_validated("Mirror repo URL", args.repo_url, validate_repo_url)
+        args.target_url = prompt_validated("Target URL", args.target_url, validate_target_url)
+        args.signing_key = prompt_validated("GPG signing key", args.signing_key, validate_signing_key)
+        args.branch = prompt_validated("Git branch", args.branch, validate_branch_name)
+        args.repo_path = prompt_value("Local repo path", args.repo_path)
+        args.interval = prompt_int("Interval minutes", args.interval, validate_interval_minutes)
+    else:
+        if not args.repo_url:
+            die("--repo-url is required in non-interactive mode")
+        if not args.signing_key:
+            die("--signing-key is required in non-interactive mode")
+        args.repo_url = validate_repo_url(args.repo_url)
+        args.target_url = validate_target_url(args.target_url)
+        args.signing_key = validate_signing_key(args.signing_key)
+        args.branch = validate_branch_name(args.branch)
+        args.interval = validate_interval_minutes(args.interval)
+
+    check_repo_remote(args.repo_url, args.branch)
+
     if args.install_deps:
         maybe_install_deps()
 
@@ -574,15 +677,19 @@ def build_parser() -> argparse.ArgumentParser:
     daemon_p.set_defaults(func=cmd_daemon)
 
     setup_p = sub.add_parser("setup-system", help="one-command deterministic system setup (root)")
-    setup_p.add_argument("--repo-url", required=True, help="git URL of the mirror repo")
+    setup_p.add_argument("--repo-url", default="", help="git URL of the mirror repo")
     setup_p.add_argument("--target-url", default="https://iranopasmigirim.com/", help="site to mirror")
     setup_p.add_argument("--repo-path", default="/srv/mirror-repo", help="local mirror repo path")
-    setup_p.add_argument("--signing-key", required=True, help="GPG signing key id")
+    setup_p.add_argument("--signing-key", default="", help="GPG signing key id")
     setup_p.add_argument("--branch", default="main", help="git branch to push")
     setup_p.add_argument("--interval", type=int, default=15, help="minutes between mirror runs")
     setup_p.add_argument("--user", default="mirror", help="system user for mirror service")
     setup_p.add_argument("--group", default="mirror", help="system group for mirror service")
     setup_p.add_argument("--install-deps", action="store_true", help="install apt dependencies")
+    setup_p.add_argument("--interactive", action="store_true", default=True,
+                         help="prompt interactively for required values (default)")
+    setup_p.add_argument("--non-interactive", dest="interactive", action="store_false",
+                         help="do not prompt; require all necessary flags")
     setup_p.add_argument("--enable-timer", dest="enable_timer", action="store_true", default=True,
                          help="enable and start mirror.timer")
     setup_p.add_argument("--no-enable-timer", dest="enable_timer", action="store_false",
@@ -594,7 +701,15 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
-    return int(args.func(args))
+    try:
+        return int(args.func(args))
+    except subprocess.CalledProcessError as exc:
+        cmd = " ".join(exc.cmd) if isinstance(exc.cmd, list) else str(exc.cmd)
+        print(f"[error] command failed ({exc.returncode}): {cmd}", file=sys.stderr)
+        return int(exc.returncode or 1)
+    except KeyboardInterrupt:
+        print("\n[error] interrupted by user", file=sys.stderr)
+        return 130
 
 
 if __name__ == "__main__":

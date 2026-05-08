@@ -14,12 +14,7 @@ It handles:
 Run as root on your producer server:
 
 ```bash
-/usr/bin/env python3 mirror_and_push.py setup-system \
-	--install-deps \
-	--repo-url <YOUR_MIRROR_REPO_URL> \
-	--signing-key 0xYOUR_LONG_KEY_ID \
-	--target-url https://iranopasmigirim.com/ \
-	--branch main
+/usr/bin/env python3 mirror_and_push.py setup-system --install-deps
 ```
 
 This command does deterministic, idempotent provisioning:
@@ -30,6 +25,20 @@ This command does deterministic, idempotent provisioning:
 - writes `/etc/mirror/mirror.toml`
 - installs systemd unit/timer
 - enables `mirror.timer`
+
+The setup is interactive and validates each input (repo URL, signing key,
+branch, interval). Invalid input is explained clearly and re-prompted.
+
+For automation/CI:
+
+```bash
+/usr/bin/env python3 mirror_and_push.py setup-system \
+	--non-interactive \
+	--repo-url <YOUR_MIRROR_REPO_URL> \
+	--signing-key 0xYOUR_LONG_KEY_ID \
+	--target-url https://iranopasmigirim.com/ \
+	--branch main
+```
 
 ## Runtime Commands
 

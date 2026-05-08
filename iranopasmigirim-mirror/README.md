@@ -129,10 +129,19 @@ It provides a clean CLI:
 
 ### One-command setup (Linux VPS)
 
-Run from this repo as root:
+Run from this repo as root (interactive, recommended):
+
+```bash
+sudo /usr/bin/env python3 pusher/mirror_and_push.py setup-system --install-deps
+```
+
+It asks for repo URL, signing key, branch, interval, and validates each input clearly.
+
+Non-interactive automation mode is still available:
 
 ```bash
 sudo /usr/bin/env python3 pusher/mirror_and_push.py setup-system \
+  --non-interactive \
   --install-deps \
   --repo-url <your-mirror-repo-url> \
   --signing-key 0xYOUR_LONG_KEY_ID \
