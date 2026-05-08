@@ -127,61 +127,41 @@ It provides a clean CLI:
 - `run-once` runs one full cycle (scrape -> sanitize -> signed commit -> push)
 - `daemon` runs continuously on a schedule
 
-### Step-by-step setup (Linux VPS)
+### One-command setup (Linux VPS)
 
-1. Install dependencies:
+Run from this repo as root:
+
 ```bash
-sudo apt-get update -y
-sudo apt-get install -y --no-install-recommends python3 python3-venv git gpg httrack
+sudo /usr/bin/env python3 pusher/mirror_and_push.py setup-system \
+  --install-deps \
+  --repo-url <your-mirror-repo-url> \
+  --signing-key 0xYOUR_LONG_KEY_ID \
+  --target-url https://iranopasmigirim.com/ \
+  --branch main
 ```
 
-2. Create runtime user and clone mirror repo:
+This performs the repeated/manual provisioning steps deterministically:
+- installs dependencies (optional via `--install-deps`)
+- creates runtime user
+- clones/updates mirror repo
+- writes config under `/etc/mirror/mirror.toml`
+- installs and enables systemd timer
+
+After setup:
+
 ```bash
-sudo useradd -r -m -s /usr/sbin/nologin mirror || true
-sudo -u mirror mkdir -p /srv/mirror-repo
-sudo -u mirror git clone <your-mirror-repo-url> /srv/mirror-repo
+sudo journalctl -u mirror.service -f
+sudo -u mirror /usr/local/bin/mirror_and_push.py --config /etc/mirror/mirror.toml run-once
 ```
 
-3. Install producer app binary and configs:
-```bash
-sudo cp pusher/mirror_and_push.py /usr/local/bin/
-sudo chmod 755 /usr/local/bin/mirror_and_push.py
-sudo mkdir -p /etc/mirror
-sudo cp pusher/mirror.toml.example /etc/mirror/mirror.toml
-sudo cp pusher/mirror.service pusher/mirror.timer /etc/systemd/system/
-```
+Optional passphrase file (if key is protected):
 
-4. Edit `/etc/mirror/mirror.toml`:
-- set `target_url`
-- set `repo_path`
-- set `signing_key`
-- set `git_branch`
-- review blocklists for `block_payment_domains` and `block_stream_extensions`
-
-5. Store passphrase securely (if key has one):
 ```bash
 cat <<'EOF' | sudo tee /etc/mirror/secrets.env >/dev/null
 GPG_PASSPHRASE=your-passphrase-if-needed
 EOF
 sudo chmod 600 /etc/mirror/secrets.env
 sudo chown root:root /etc/mirror/secrets.env
-```
-
-6. Validate setup:
-```bash
-sudo -u mirror /usr/local/bin/mirror_and_push.py --config /etc/mirror/mirror.toml doctor
-```
-
-7. Run first cycle manually:
-```bash
-sudo -u mirror /usr/local/bin/mirror_and_push.py --config /etc/mirror/mirror.toml run-once
-```
-
-8. Enable periodic automatic runs:
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now mirror.timer
-sudo journalctl -u mirror.service -f
 ```
 
 The unit is hardened (`ProtectSystem=strict`, `NoNewPrivileges`, etc.) and the producer app is single-instance locked.

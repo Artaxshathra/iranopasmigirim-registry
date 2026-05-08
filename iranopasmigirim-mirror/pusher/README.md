@@ -9,12 +9,33 @@ It handles:
 - push
 - periodic automatic runs
 
-## Commands
+## One-command Setup (recommended)
 
-- `./mirror_and_push.py --config /etc/mirror/mirror.toml init`
-- `./mirror_and_push.py --config /etc/mirror/mirror.toml doctor`
-- `./mirror_and_push.py --config /etc/mirror/mirror.toml run-once`
-- `./mirror_and_push.py --config /etc/mirror/mirror.toml daemon`
+Run as root on your producer server:
+
+```bash
+/usr/bin/env python3 mirror_and_push.py setup-system \
+	--install-deps \
+	--repo-url <YOUR_MIRROR_REPO_URL> \
+	--signing-key 0xYOUR_LONG_KEY_ID \
+	--target-url https://iranopasmigirim.com/ \
+	--branch main
+```
+
+This command does deterministic, idempotent provisioning:
+- installs deps (if `--install-deps`)
+- creates `mirror` system user
+- clones/updates repo under `/srv/mirror-repo`
+- installs producer binary to `/usr/local/bin/mirror_and_push.py`
+- writes `/etc/mirror/mirror.toml`
+- installs systemd unit/timer
+- enables `mirror.timer`
+
+## Runtime Commands
+
+- `mirror_and_push.py --config /etc/mirror/mirror.toml doctor`
+- `mirror_and_push.py --config /etc/mirror/mirror.toml run-once`
+- `mirror_and_push.py --config /etc/mirror/mirror.toml daemon`
 
 ## Config
 

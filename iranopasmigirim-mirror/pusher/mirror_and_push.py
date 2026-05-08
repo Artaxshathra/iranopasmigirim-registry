@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import fcntl
 import os
+import pwd
 import re
 import shutil
 import subprocess
@@ -62,6 +63,42 @@ block_payment_domains = [
 ]
 """
 
+SERVICE_TEMPLATE = """[Unit]
+Description=Mirror producer run-once
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User={user}
+Group={group}
+WorkingDirectory={repo_path}
+EnvironmentFile=-/etc/mirror/secrets.env
+ExecStart=/usr/local/bin/mirror_and_push.py --config {config_path} run-once
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=30m
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ReadWritePaths={repo_path}
+"""
+
+TIMER_TEMPLATE = """[Unit]
+Description=Mirror producer timer
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec={interval_minutes}min
+RandomizedDelaySec=60s
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+"""
+
 
 @dataclass
 class Config:
@@ -88,6 +125,101 @@ class Config:
 def run(cmd: list[str], cwd: Path | None = None, check: bool = True, env: dict[str, str] | None = None):
     print(f"$ {' '.join(cmd)}", flush=True)
     return subprocess.run(cmd, cwd=str(cwd) if cwd else None, check=check, env=env)
+
+
+def require_root() -> None:
+    if os.geteuid() != 0:
+        raise SystemExit("setup-system must run as root")
+
+
+def run_as_user(user: str, cmd: list[str], cwd: Path | None = None, check: bool = True) -> subprocess.CompletedProcess:
+    if shutil.which("runuser"):
+        wrapped = ["runuser", "-u", user, "--"] + cmd
+        return run(wrapped, cwd=cwd, check=check)
+    if shutil.which("sudo"):
+        wrapped = ["sudo", "-u", user] + cmd
+        return run(wrapped, cwd=cwd, check=check)
+    raise SystemExit("runuser/sudo is required to execute commands as the mirror user")
+
+
+def write_file(path: Path, content: str, mode: int = 0o644) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    os.chmod(path, mode)
+
+
+def config_from_values(target_url: str, repo_path: Path, signing_key: str, branch: str, interval_minutes: int) -> str:
+    content = DEFAULT_CONFIG
+    content = content.replace('target_url = "https://iranopasmigirim.com/"', f'target_url = "{target_url}"')
+    content = content.replace('repo_path = "/srv/mirror-repo"', f'repo_path = "{repo_path}"')
+    content = content.replace('signing_key = "0xABCDEF1234567890"', f'signing_key = "{signing_key}"')
+    content = content.replace('git_branch = "main"', f'git_branch = "{branch}"')
+    content = content.replace('interval_minutes = 15', f'interval_minutes = {interval_minutes}')
+    return content
+
+
+def ensure_system_user(user: str, group: str) -> None:
+    try:
+        pwd.getpwnam(user)
+    except KeyError:
+        run(["useradd", "-r", "-m", "-s", "/usr/sbin/nologin", user])
+
+    if group != user:
+        run(["groupadd", "-f", group], check=False)
+        run(["usermod", "-a", "-G", group, user], check=False)
+
+
+def ensure_repo_checkout(repo_url: str, repo_path: Path, user: str, branch: str) -> None:
+    repo_path.parent.mkdir(parents=True, exist_ok=True)
+    if not (repo_path / ".git").is_dir():
+        run_as_user(user, ["git", "clone", "-b", branch, repo_url, str(repo_path)])
+    else:
+        run_as_user(user, ["git", "-C", str(repo_path), "fetch", "--all", "--prune"], check=False)
+        run_as_user(user, ["git", "-C", str(repo_path), "checkout", branch], check=False)
+    run(["chown", "-R", f"{user}:{user}", str(repo_path)])
+
+
+def install_binary_from_self() -> None:
+    src = Path(__file__).resolve()
+    dest = Path("/usr/local/bin/mirror_and_push.py")
+    shutil.copy2(src, dest)
+    os.chmod(dest, 0o755)
+
+
+def install_systemd_units(config_path: Path, repo_path: Path, user: str, group: str, interval_minutes: int) -> None:
+    service = SERVICE_TEMPLATE.format(
+        user=user,
+        group=group,
+        repo_path=str(repo_path),
+        config_path=str(config_path),
+    )
+    timer = TIMER_TEMPLATE.format(interval_minutes=interval_minutes)
+    write_file(Path("/etc/systemd/system/mirror.service"), service, mode=0o644)
+    write_file(Path("/etc/systemd/system/mirror.timer"), timer, mode=0o644)
+
+
+def maybe_install_deps() -> None:
+    if not shutil.which("apt-get"):
+        raise SystemExit("--install-deps requested but apt-get was not found")
+    run(["apt-get", "update", "-y"])
+    run([
+        "apt-get",
+        "install",
+        "-y",
+        "--no-install-recommends",
+        "python3",
+        "git",
+        "gpg",
+        "httrack",
+    ])
+
+
+def write_default_secrets_file() -> None:
+    path = Path("/etc/mirror/secrets.env")
+    if path.exists():
+        return
+    content = "# Optional. Set if your key is passphrase-protected.\nGPG_PASSPHRASE=\n"
+    write_file(path, content, mode=0o600)
 
 
 def parse_toml_text(content: str) -> dict:
@@ -386,6 +518,42 @@ def cmd_daemon(args: argparse.Namespace) -> int:
         lock.close()
 
 
+def cmd_setup_system(args: argparse.Namespace) -> int:
+    require_root()
+    if args.install_deps:
+        maybe_install_deps()
+
+    repo_path = Path(args.repo_path).expanduser().resolve()
+    config_path = Path(args.config).expanduser().resolve()
+
+    ensure_system_user(args.user, args.group)
+    ensure_repo_checkout(args.repo_url, repo_path, args.user, args.branch)
+    install_binary_from_self()
+
+    cfg = config_from_values(
+        target_url=args.target_url,
+        repo_path=repo_path,
+        signing_key=args.signing_key,
+        branch=args.branch,
+        interval_minutes=args.interval,
+    )
+    write_file(config_path, cfg, mode=0o640)
+    run(["chown", "root:root", str(config_path)])
+
+    write_default_secrets_file()
+    install_systemd_units(config_path, repo_path, args.user, args.group, args.interval)
+    run(["systemctl", "daemon-reload"])
+
+    run_as_user(args.user, ["/usr/local/bin/mirror_and_push.py", "--config", str(config_path), "doctor"], check=False)
+
+    if args.enable_timer:
+        run(["systemctl", "enable", "--now", "mirror.timer"])
+        print("setup complete: timer enabled", flush=True)
+    else:
+        print("setup complete: timer not enabled (use systemctl enable --now mirror.timer)", flush=True)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Mirror producer app")
     p.add_argument("--config", default="/etc/mirror/mirror.toml", help="path to config TOML")
@@ -404,6 +572,22 @@ def build_parser() -> argparse.ArgumentParser:
 
     daemon_p = sub.add_parser("daemon", help="run forever with interval_minutes cadence")
     daemon_p.set_defaults(func=cmd_daemon)
+
+    setup_p = sub.add_parser("setup-system", help="one-command deterministic system setup (root)")
+    setup_p.add_argument("--repo-url", required=True, help="git URL of the mirror repo")
+    setup_p.add_argument("--target-url", default="https://iranopasmigirim.com/", help="site to mirror")
+    setup_p.add_argument("--repo-path", default="/srv/mirror-repo", help="local mirror repo path")
+    setup_p.add_argument("--signing-key", required=True, help="GPG signing key id")
+    setup_p.add_argument("--branch", default="main", help="git branch to push")
+    setup_p.add_argument("--interval", type=int, default=15, help="minutes between mirror runs")
+    setup_p.add_argument("--user", default="mirror", help="system user for mirror service")
+    setup_p.add_argument("--group", default="mirror", help="system group for mirror service")
+    setup_p.add_argument("--install-deps", action="store_true", help="install apt dependencies")
+    setup_p.add_argument("--enable-timer", dest="enable_timer", action="store_true", default=True,
+                         help="enable and start mirror.timer")
+    setup_p.add_argument("--no-enable-timer", dest="enable_timer", action="store_false",
+                         help="do not enable timer automatically")
+    setup_p.set_defaults(func=cmd_setup_system)
     return p
 
 
