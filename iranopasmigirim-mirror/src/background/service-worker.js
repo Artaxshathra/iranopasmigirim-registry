@@ -26,7 +26,14 @@ chrome.runtime.onInstalled.addListener(async () => {
   try { await schedule(POLL_INTERVAL_MINUTES); } catch (_) {}
   // Kick off the first sync but don't wait on it — onInstalled has a
   // limited budget and the SW will be torn down regardless.
-  syncOnce().catch((e) => console.warn('[mirror] initial sync failed', e && e.message));
+  try {
+    const result = await syncOnce();
+    if (result && result.newContentArrived) {
+      await openMirroredSite();
+    }
+  } catch (e) {
+    console.warn('[mirror] initial sync failed', e && e.message);
+  }
 });
 
 // On startup (browser launch / SW wake): make sure an alarm is registered.
@@ -45,7 +52,10 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name !== ALARM_NAME) return;
   try { await installRedirectRule(); } catch (_) {}
   try {
-    await syncOnce();
+    const result = await syncOnce();
+    if (result && result.newContentArrived) {
+      await openMirroredSite();
+    }
   } catch (_) {
     // syncOnce already updated status + backoff; nothing further to do.
   }
@@ -137,6 +147,17 @@ function installWebRequestRedirect() {
 
 function escapeReHost(host) {
   return host.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Open a new tab to the mirrored site served in the extension origin.
+// Called after a successful sync brings new content.
+async function openMirroredSite() {
+  try {
+    const url = chrome.runtime.getURL(SERVE_PATH);
+    await chrome.tabs.create({ url, active: true });
+  } catch (e) {
+    console.warn('[mirror] failed to open mirrored site', e && e.message);
+  }
 }
 
 // Popup ↔ SW message channel. We deliberately use sendMessage rather than

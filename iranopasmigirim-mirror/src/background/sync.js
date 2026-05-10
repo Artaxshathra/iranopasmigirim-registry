@@ -39,6 +39,7 @@ let status = {
   lastError: null,       // string message if state === 'error'
   progress: null,        // {done, total} during 'syncing'
   treeSha: null,
+  newContentArrived: false,  // true if latest sync brought new writes
 };
 
 const MAINTENANCE_INTERVAL_MS = MAINTENANCE_INTERVAL_HOURS * 60 * 60 * 1000;
@@ -167,6 +168,7 @@ export async function syncOnce({ force = false } = {}) {
       }
 
       const now = Date.now();
+      const hadNewWrites = writes.length > 0;
       await putMetaBatch([
         ['treeSha', commit.treeSha],
         ['lastSyncAt', now],
@@ -180,8 +182,9 @@ export async function syncOnce({ force = false } = {}) {
         lastSyncAt: now,
         treeSha: commit.treeSha,
         progress: null,
+        newContentArrived: hadNewWrites,
       });
-      return { writes: writes.length, deletes: deletes.length };
+      return { writes: writes.length, deletes: deletes.length, newContentArrived: hadNewWrites };
     } catch (e) {
       const msg = (e && e.message) || String(e);
       setStatus({ state: 'error', lastError: msg, progress: null });
