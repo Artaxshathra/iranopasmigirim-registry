@@ -19,6 +19,7 @@ import {
   TRUSTED_SIGNER_PUBLIC_KEYS,
   ALLOW_UNPINNED_SIGNATURES,
   CONTENT_BRANCH,
+  REVOKED_SIGNERS,
 } from '../config.js';
 import { createMessage, readKey, readSignature, verify as pgpVerify } from 'openpgp';
 
@@ -176,6 +177,9 @@ export async function verifyCommit(commit, options = {}) {
   const allowUnpinned = typeof options.allowUnpinned === 'boolean'
     ? options.allowUnpinned
     : ALLOW_UNPINNED_SIGNATURES;
+  const revokedSigners = Array.isArray(options.revokedSigners)
+    ? options.revokedSigners
+    : REVOKED_SIGNERS;
 
   if (allowUnpinned && (!v.signature || !v.payload)) {
     return { ok: true, reason: 'unpinned mode' };
@@ -203,12 +207,16 @@ export async function verifyCommit(commit, options = {}) {
   }
 
   const allowed = new Set(trustedSigners.map(normalizeSignerId));
+  const revoked = new Set(revokedSigners.map(normalizeSignerId));
   const actual = normalizeSignerId(matchedFingerprint);
+  if (revoked.has(actual)) {
+    return { ok: false, reason: `revoked signer: ${actual.slice(-16)}` };
+  }
   if (!allowed.has(actual)) {
     return { ok: false, reason: `unpinned signer: ${actual.slice(-16)}` };
   }
 
-  return { ok: true, reason: 'signature verified' };
+  return { ok: true, reason: 'signature verified', signerFingerprint: actual };
 }
 
 async function verifyWithPinnedKeys(armoredSignature, payload, armoredKeys) {

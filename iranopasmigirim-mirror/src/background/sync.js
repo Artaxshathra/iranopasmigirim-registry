@@ -89,6 +89,7 @@ export async function syncOnce({ force = false } = {}) {
         throw new Error('Mirror repo URL not configured. Set it in the extension popup.');
       }
 
+      const registrationDraft = await getRegistrationDraft();
       const commit = await resolvePointer(userRepoUrl);
       const lastSha = await getMeta('treeSha');
       if (!force && commit.treeSha === lastSha) {
@@ -110,6 +111,19 @@ export async function syncOnce({ force = false } = {}) {
       const verdict = await verifyCommit(commit);
       if (!verdict.ok) {
         throw new Error(`signature verification failed: ${verdict.reason}`);
+      }
+
+      const expectedSigner = normalizeFingerprint(
+        registrationDraft && registrationDraft.delivery
+          ? registrationDraft.delivery.producerFingerprint
+          : ''
+      );
+      const actualSigner = normalizeFingerprint(verdict.signerFingerprint || '');
+      if (expectedSigner && (!actualSigner || expectedSigner !== actualSigner)) {
+        throw new Error('signature verification failed: producer fingerprint mismatch');
+      }
+      if (!expectedSigner && actualSigner && registrationDraft && registrationDraft.userRepoUrl === userRepoUrl) {
+        await persistRegistrationSigner(registrationDraft, actualSigner);
       }
 
       const tree = await getTree(userRepoUrl, commit.treeSha);
@@ -380,4 +394,31 @@ function isPathAllowedForHost(path, siteHost) {
     if (normalizedPath.startsWith(`${pattern}/`)) return true;
   }
   return false;
+}
+
+
+async function getRegistrationDraft() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get('registrationDraft', (result) => {
+      resolve(result && result.registrationDraft ? result.registrationDraft : null);
+    });
+  });
+}
+
+async function persistRegistrationSigner(registrationDraft, signerFingerprint) {
+  if (!registrationDraft || !registrationDraft.delivery) return;
+  const next = {
+    ...registrationDraft,
+    delivery: {
+      ...registrationDraft.delivery,
+      producerFingerprint: signerFingerprint,
+    },
+  };
+  return new Promise((resolve) => {
+    chrome.storage.local.set({ registrationDraft: next }, resolve);
+  });
+}
+
+function normalizeFingerprint(value) {
+  return String(value || '').toUpperCase().replace(/[^0-9A-F]/g, '');
 }

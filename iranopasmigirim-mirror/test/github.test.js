@@ -61,6 +61,7 @@ describe('verifyCommit: strict pinned-key verification', () => {
       allowUnpinned: false,
     });
     assert.equal(r.ok, true);
+    assert.equal(r.signerFingerprint, data.fingerprint);
   });
 
   it('rejects when only short key-id pin is supplied', async () => {
@@ -111,6 +112,25 @@ describe('verifyCommit: strict pinned-key verification', () => {
     });
     assert.equal(r.ok, false);
     assert.match(r.reason, /unpinned signer/);
+  });
+
+
+  it('rejects when signer fingerprint is revoked', async () => {
+    const data = await makeSignedPayload();
+    const r = await verifyCommit({
+      verification: {
+        verified: true,
+        signature: data.detachedSignature,
+        payload: data.payload,
+      },
+    }, {
+      trustedSigners: [data.fingerprint],
+      trustedSignerPublicKeys: [data.publicKey],
+      revokedSigners: [data.fingerprint],
+      allowUnpinned: false,
+    });
+    assert.equal(r.ok, false);
+    assert.match(r.reason, /revoked signer/);
   });
 
   it('explicitly allows unpinned mode only when opted-in', async () => {

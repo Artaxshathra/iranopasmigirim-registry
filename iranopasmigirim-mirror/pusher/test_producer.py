@@ -1,5 +1,10 @@
+import sys
 import unittest
 from pathlib import Path
+
+THIS_DIR = Path(__file__).resolve().parent
+if str(THIS_DIR) not in sys.path:
+    sys.path.insert(0, str(THIS_DIR))
 
 from mirror_and_push import (  # type: ignore
     Config,
@@ -21,7 +26,7 @@ class ProducerParsingTests(unittest.TestCase):
             requests_subdir='requests',
             status_subdir='status',
             user_repos_root=Path('/tmp/users'),
-            delivery_subdir='content',
+            delivery_subdir='',
             default_delivery_branch='content',
             default_entry_path='index.html',
             interval_minutes=15,

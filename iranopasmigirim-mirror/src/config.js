@@ -12,6 +12,7 @@ export const MAINTENANCE_INTERVAL_HOURS = 24;
 // Hardened trust pins. Replace with real values before release.
 export const TRUSTED_SIGNERS = [];
 export const TRUSTED_SIGNER_PUBLIC_KEYS = [];
+export const REVOKED_SIGNERS = [];
 export const ALLOW_UNPINNED_SIGNATURES = false;
 
 // Request-response protocol constants.

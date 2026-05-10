@@ -50,6 +50,7 @@ describe('registration: draft and instruction generation', () => {
     assert.equal(draft.siteHost, 'bbc.com');
     assert.equal(draft.registry.state, 'draft');
     assert.equal(draft.ownership.branch.length > 0, true);
+    assert.equal(draft.delivery.producerFingerprint, null);
     assert.match(draft.ownership.challengePath, /^_mirror\/challenges\/.+\.txt$/);
   });
 
@@ -89,7 +90,13 @@ describe('registration: remote-state merge', () => {
 
     const updated = mergeRegistrationRemoteState(
       draft,
-      { state: 'approved', reason: 'ok', commitSha: 'abc123', deliveryBranch: 'content' },
+      {
+        state: 'approved',
+        reason: 'ok',
+        commitSha: 'abc123',
+        deliveryBranch: 'content',
+        producerFingerprint: 'AA BB CC DD EE FF 00 11 22 33 44 55 66 77 88 99 AA BB CC DD',
+      },
       `${draft.ownership.nonce}\n`,
       1700000005000,
     );
@@ -98,6 +105,7 @@ describe('registration: remote-state merge', () => {
     assert.equal(updated.registry.state, 'approved');
     assert.equal(updated.delivery.ready, true);
     assert.equal(updated.delivery.commitSha, 'abc123');
+    assert.equal(updated.delivery.producerFingerprint, 'AABBCCDDEEFF00112233445566778899AABBCCDD');
   });
 
   it('keeps ownership unverified when challenge mismatch', () => {

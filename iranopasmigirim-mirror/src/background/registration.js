@@ -17,6 +17,10 @@ export function normalizeHost(host) {
   return h.startsWith('www.') ? h.slice(4) : h;
 }
 
+function normalizeFingerprint(value) {
+  return String(value || '').toUpperCase().replace(/[^0-9A-F]/g, '');
+}
+
 export function parseRequestedSite(requestedUrl) {
   let u;
   try {
@@ -88,6 +92,7 @@ export function createRegistrationDraft({ userRepoUrl, requestedUrl, now = Date.
       ready: false,
       commitSha: null,
       manifestPath: '_mirror/manifest.json',
+      producerFingerprint: null,
     },
   };
 }
@@ -167,6 +172,12 @@ export function mergeRegistrationRemoteState(draft, registryStatus, proofText, n
     if (typeof registryStatus.commitSha === 'string' && registryStatus.commitSha.trim()) {
       next.delivery.commitSha = registryStatus.commitSha.trim();
       next.delivery.ready = true;
+    }
+    if (typeof registryStatus.producerFingerprint === 'string') {
+      const fp = normalizeFingerprint(registryStatus.producerFingerprint);
+      if (/^[0-9A-F]{40}$/.test(fp)) {
+        next.delivery.producerFingerprint = fp;
+      }
     }
   }
 
