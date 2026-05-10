@@ -8,6 +8,11 @@
     "build": "node scripts/release-gate.js && node build.js both",
     "build:chrome": "node scripts/release-gate.js && node build.js chrome",
     "build:firefox": "node scripts/release-gate.js && node build.js firefox",
+    "dev:chrome": "node build.js chrome",
+    "dev:firefox": "node build.js firefox",
+    "dev:both": "node build.js both",
+    "test:local:chrome": "npm test && npm run dev:chrome",
+    "test:local:firefox": "npm test && npm run dev:firefox",
     "test": "node --test test/*.test.js",
     "clean": "rm -rf dist"
   },
