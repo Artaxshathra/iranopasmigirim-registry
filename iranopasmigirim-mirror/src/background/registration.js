@@ -159,7 +159,11 @@ export function mergeRegistrationRemoteState(draft, registryStatus, proofText, n
 
   if (registryStatus && typeof registryStatus === 'object') {
     if (typeof registryStatus.state === 'string' && registryStatus.state.trim()) {
-      next.registry.state = registryStatus.state.trim().toLowerCase();
+      const normalizedState = registryStatus.state.trim().toLowerCase();
+      const allowedStates = new Set(['draft', 'pending', 'approved', 'rejected', 'error']);
+      if (allowedStates.has(normalizedState)) {
+        next.registry.state = normalizedState;
+      }
     }
     if (typeof registryStatus.reason === 'string') {
       next.registry.stateReason = registryStatus.reason;
@@ -170,8 +174,11 @@ export function mergeRegistrationRemoteState(draft, registryStatus, proofText, n
       next.delivery.branch = registryStatus.deliveryBranch.trim();
     }
     if (typeof registryStatus.commitSha === 'string' && registryStatus.commitSha.trim()) {
-      next.delivery.commitSha = registryStatus.commitSha.trim();
-      next.delivery.ready = true;
+      const sha = registryStatus.commitSha.trim().toLowerCase();
+      if (/^[0-9a-f]{7,64}$/.test(sha)) {
+        next.delivery.commitSha = sha;
+        next.delivery.ready = true;
+      }
     }
     if (typeof registryStatus.producerFingerprint === 'string') {
       const fp = normalizeFingerprint(registryStatus.producerFingerprint);

@@ -133,6 +133,23 @@ describe('verifyCommit: strict pinned-key verification', () => {
     assert.match(r.reason, /revoked signer/);
   });
 
+  it('rejects tampered payload with a valid detached signature fixture', async () => {
+    const data = await makeSignedPayload();
+    const r = await verifyCommit({
+      verification: {
+        verified: true,
+        signature: data.detachedSignature,
+        payload: `${data.payload}tampered`,
+      },
+    }, {
+      trustedSigners: [data.fingerprint],
+      trustedSignerPublicKeys: [data.publicKey],
+      allowUnpinned: false,
+    });
+    assert.equal(r.ok, false);
+    assert.match(r.reason, /signature verification failed/);
+  });
+
   it('explicitly allows unpinned mode only when opted-in', async () => {
     const r = await verifyCommit({
       verification: { verified: true },

@@ -34,7 +34,7 @@ DEFAULT_CONFIG = """# Mirror producer configuration (Phase 3)
 
 # Registry repo (fixed producer-controlled inbox/outbox).
 registry_repo_path = "/srv/mirror-registry"
-registry_repo_url = "https://github.com/your-org/mirror-registry"
+registry_repo_url = "https://github.com/ardeshiri/inrtv-extension"
 registry_remote = "origin"
 registry_branch = "registrations"
 requests_subdir = "requests"
@@ -54,7 +54,7 @@ interval_minutes = 15
 max_requests_per_run = 10
 
 # Signed commits.
-signing_key = "0xABCDEF1234567890"
+signing_key = "0xDD13EC3368AA05D1"
 gpg_passphrase_env = "GPG_PASSPHRASE"
 
 # Mirroring behavior.
@@ -661,6 +661,42 @@ def stage_commit_and_push(repo_path: Path, remote: str, branch: str, signing_key
     return run_capture(["git", "rev-parse", "HEAD"], cwd=repo_path)
 
 
+def current_head_sha(repo_path: Path) -> str | None:
+    p = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=str(repo_path),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if p.returncode != 0:
+        return None
+    head = (p.stdout or "").strip()
+    return head or None
+
+
+def rollback_delivery_checkout(repo_path: Path, head_before: str | None) -> None:
+    if head_before:
+        run(["git", "reset", "--hard", head_before], cwd=repo_path, check=False)
+    run(["git", "clean", "-fd"], cwd=repo_path, check=False)
+
+
+def stage_commit_and_push_with_rollback(
+    repo_path: Path,
+    remote: str,
+    branch: str,
+    signing_key: str,
+    pass_env: str,
+    message: str,
+) -> str:
+    head_before = current_head_sha(repo_path)
+    try:
+        return stage_commit_and_push(repo_path, remote, branch, signing_key, pass_env, message)
+    except Exception:
+        rollback_delivery_checkout(repo_path, head_before)
+        raise
+
+
 def process_single_request(cfg: Config, req: RequestDoc) -> dict:
     status = {
         "requestId": req.request_id,
@@ -700,38 +736,43 @@ def process_single_request(cfg: Config, req: RequestDoc) -> dict:
 
     status["ownershipVerified"] = True
 
-    with tempfile.TemporaryDirectory(prefix=f"mirror_req_{req.request_id}_") as td:
-        stage = Path(td)
-        host_dir = scrape_site(cfg, req.requested_url, stage)
-        sanitize_content(host_dir, cfg)
-        files = count_files(host_dir)
-        if files < cfg.min_files:
-            status["state"] = "error"
-            status["reason"] = f"scrape sanity check failed: only {files} files"
-            return status
-        if files > cfg.max_files:
-            status["state"] = "error"
-            status["reason"] = f"scrape sanity check failed: {files} files"
-            return status
+    try:
+        with tempfile.TemporaryDirectory(prefix=f"mirror_req_{req.request_id}_") as td:
+            stage = Path(td)
+            host_dir = scrape_site(cfg, req.requested_url, stage)
+            sanitize_content(host_dir, cfg)
+            files = count_files(host_dir)
+            if files < cfg.min_files:
+                status["state"] = "error"
+                status["reason"] = f"scrape sanity check failed: only {files} files"
+                return status
+            if files > cfg.max_files:
+                status["state"] = "error"
+                status["reason"] = f"scrape sanity check failed: {files} files"
+                return status
 
-        prepare_delivery_branch(user_repo_path, "origin", req.delivery_branch)
+            prepare_delivery_branch(user_repo_path, "origin", req.delivery_branch)
 
-        if cfg.delivery_subdir.strip():
-            delivery_root = user_repo_path / cfg.delivery_subdir.strip()
-            sync_tree(host_dir, delivery_root)
-            write_manifest(delivery_root, req, cfg)
-        else:
-            replace_repo_working_tree(host_dir, user_repo_path)
-            write_manifest(user_repo_path, req, cfg)
+            if cfg.delivery_subdir.strip():
+                delivery_root = user_repo_path / cfg.delivery_subdir.strip()
+                sync_tree(host_dir, delivery_root)
+                write_manifest(delivery_root, req, cfg)
+            else:
+                replace_repo_working_tree(host_dir, user_repo_path)
+                write_manifest(user_repo_path, req, cfg)
 
-        commit_sha = stage_commit_and_push(
-            repo_path=user_repo_path,
-            remote="origin",
-            branch=req.delivery_branch,
-            signing_key=cfg.signing_key,
-            pass_env=cfg.gpg_passphrase_env,
-            message=f"deliver: {req.request_id} {datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}",
-        )
+            commit_sha = stage_commit_and_push_with_rollback(
+                repo_path=user_repo_path,
+                remote="origin",
+                branch=req.delivery_branch,
+                signing_key=cfg.signing_key,
+                pass_env=cfg.gpg_passphrase_env,
+                message=f"deliver: {req.request_id} {datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}",
+            )
+    except Exception as exc:  # noqa: BLE001
+        status["state"] = "error"
+        status["reason"] = f"delivery failed and rolled back: {exc}"
+        return status
 
     status["state"] = "approved"
     status["reason"] = "delivered"

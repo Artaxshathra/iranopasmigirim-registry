@@ -34,7 +34,7 @@ Mirror is a GitHub-only offline snapshot extension with a request-response proto
 
 ```bash
 npm test
-node build.js both
+npm run build
 python3 -m py_compile pusher/mirror_and_push.py
 python3 -m unittest -v pusher/test_producer.py
 ```
@@ -51,4 +51,4 @@ python3 -m unittest -v pusher/test_producer.py
 ## Notes
 
 - This repository is now generic and no longer tied to a single legacy target website.
-- If release signing pins are not configured, release-gate scripts intentionally fail hardened release builds.
+- Hardened release builds are gated by signer pins and registry URL checks (`scripts/release-gate.js`).

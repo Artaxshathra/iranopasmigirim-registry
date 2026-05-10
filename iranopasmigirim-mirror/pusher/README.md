@@ -68,6 +68,11 @@ Key options:
 - `block_payment_domains`: blocked payment links rewritten to a blocked page
 - `block_stream_extensions`: blocked stream/media URL patterns
 
+Release signer consistency:
+- Extension trust pin (fingerprint) is configured in `src/config.js` and must match producer signing identity.
+- Current pinned fingerprint: `AF95AB7725D68A2ABBA8B938DD13EC3368AA05D1`.
+- Default producer signing key id in templates: `0xDD13EC3368AA05D1`.
+
 ## Security Notes
 
 - Signed commits only. No unsigned fallback.

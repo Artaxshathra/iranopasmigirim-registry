@@ -2,7 +2,12 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { gitBlobShaHex, isQuotaError, shouldRunMaintenance } from '../src/background/sync.js';
+import {
+  gitBlobShaHex,
+  isQuotaError,
+  shouldRunMaintenance,
+  validateSnapshotManifest,
+} from '../src/background/sync.js';
 
 describe('sync: git blob hashing', () => {
   it('matches git hash-object for known content', async () => {
@@ -40,5 +45,36 @@ describe('sync: maintenance scheduling', () => {
   it('runs after interval elapsed', () => {
     const hour = 60 * 60 * 1000;
     assert.equal(shouldRunMaintenance(10 * hour, 10 * hour + 24 * hour), true);
+  });
+});
+
+describe('sync: snapshot manifest validation', () => {
+  it('accepts well-formed whitelisted manifest', () => {
+    const meta = validateSnapshotManifest({
+      siteHost: 'bbc.com',
+      entryPath: 'news/index.html',
+      requestId: 'req-123',
+    });
+    assert.equal(meta.siteHost, 'bbc.com');
+    assert.equal(meta.entryPath, 'news/index.html');
+    assert.equal(meta.requestId, 'req-123');
+  });
+
+  it('rejects non-whitelisted host in manifest', () => {
+    assert.throws(() => {
+      validateSnapshotManifest({
+        siteHost: 'evil.example',
+        entryPath: 'index.html',
+      });
+    }, /not whitelisted/);
+  });
+
+  it('rejects entry paths outside policy', () => {
+    assert.throws(() => {
+      validateSnapshotManifest({
+        siteHost: 'bbc.com',
+        entryPath: 'sport/index.html',
+      });
+    }, /outside whitelist paths/);
   });
 });

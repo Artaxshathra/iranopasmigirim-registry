@@ -1,6 +1,7 @@
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 THIS_DIR = Path(__file__).resolve().parent
 if str(THIS_DIR) not in sys.path:
@@ -8,10 +9,13 @@ if str(THIS_DIR) not in sys.path:
 
 from mirror_and_push import (  # type: ignore
     Config,
+    current_head_sha,
     is_host_allowed,
     normalize_host,
     parse_request_doc,
+    rollback_delivery_checkout,
     sanitize_relpath,
+    stage_commit_and_push_with_rollback,
     status_file_path,
 )
 
@@ -101,6 +105,52 @@ class ProducerParsingTests(unittest.TestCase):
         cfg = self.make_cfg()
         p = status_file_path(cfg, 'req/invalid*id')
         self.assertEqual(str(p), '/tmp/registry/status/req_invalid_id.json')
+
+
+class ProducerRollbackTests(unittest.TestCase):
+    def test_stage_commit_and_push_with_rollback_triggers_cleanup_on_failure(self):
+        with patch('mirror_and_push.current_head_sha', return_value='deadbeef') as head_mock, \
+                patch('mirror_and_push.stage_commit_and_push', side_effect=RuntimeError('push failed')) as commit_mock, \
+                patch('mirror_and_push.rollback_delivery_checkout') as rollback_mock:
+            with self.assertRaises(RuntimeError):
+                stage_commit_and_push_with_rollback(
+                    repo_path=Path('/tmp/repo'),
+                    remote='origin',
+                    branch='content',
+                    signing_key='0xABCDEF1234567890',
+                    pass_env='GPG_PASSPHRASE',
+                    message='deliver test',
+                )
+            head_mock.assert_called_once()
+            commit_mock.assert_called_once()
+            rollback_mock.assert_called_once_with(Path('/tmp/repo'), 'deadbeef')
+
+    def test_stage_commit_and_push_with_rollback_passthrough_on_success(self):
+        with patch('mirror_and_push.current_head_sha', return_value='deadbeef'), \
+                patch('mirror_and_push.stage_commit_and_push', return_value='cafebabe') as commit_mock, \
+                patch('mirror_and_push.rollback_delivery_checkout') as rollback_mock:
+            out = stage_commit_and_push_with_rollback(
+                repo_path=Path('/tmp/repo'),
+                remote='origin',
+                branch='content',
+                signing_key='0xABCDEF1234567890',
+                pass_env='GPG_PASSPHRASE',
+                message='deliver test',
+            )
+            self.assertEqual(out, 'cafebabe')
+            commit_mock.assert_called_once()
+            rollback_mock.assert_not_called()
+
+    def test_current_head_sha_returns_none_when_repo_has_no_head(self):
+        with patch('mirror_and_push.subprocess.run') as run_mock:
+            run_mock.return_value.returncode = 1
+            run_mock.return_value.stdout = ''
+            self.assertIsNone(current_head_sha(Path('/tmp/repo')))
+
+    def test_rollback_checkout_uses_reset_and_clean(self):
+        with patch('mirror_and_push.run') as run_mock:
+            rollback_delivery_checkout(Path('/tmp/repo'), 'abc123')
+            self.assertEqual(run_mock.call_count, 2)
 
 
 if __name__ == '__main__':

@@ -93,7 +93,7 @@ describe('registration: remote-state merge', () => {
       {
         state: 'approved',
         reason: 'ok',
-        commitSha: 'abc123',
+        commitSha: 'abc1234',
         deliveryBranch: 'content',
         producerFingerprint: 'AA BB CC DD EE FF 00 11 22 33 44 55 66 77 88 99 AA BB CC DD',
       },
@@ -104,7 +104,7 @@ describe('registration: remote-state merge', () => {
     assert.equal(updated.ownership.verified, true);
     assert.equal(updated.registry.state, 'approved');
     assert.equal(updated.delivery.ready, true);
-    assert.equal(updated.delivery.commitSha, 'abc123');
+    assert.equal(updated.delivery.commitSha, 'abc1234');
     assert.equal(updated.delivery.producerFingerprint, 'AABBCCDDEEFF00112233445566778899AABBCCDD');
   });
 
@@ -122,5 +122,27 @@ describe('registration: remote-state merge', () => {
 
     assert.equal(updated.ownership.verified, false);
     assert.equal(updated.registry.state, 'pending');
+  });
+
+  it('ignores malformed status fields and does not mark delivery ready', () => {
+    const draft = createRegistrationDraft({
+      userRepoUrl: 'https://github.com/example/user-mirror',
+      requestedUrl: 'https://bbc.com/news',
+    });
+
+    const updated = mergeRegistrationRemoteState(
+      draft,
+      {
+        state: 'APPROVED_BUT_TAMPERED',
+        commitSha: 'not-a-sha',
+        producerFingerprint: 'bad-fingerprint',
+      },
+      draft.ownership.nonce,
+    );
+
+    assert.equal(updated.registry.state, draft.registry.state);
+    assert.equal(updated.delivery.commitSha, null);
+    assert.equal(updated.delivery.ready, false);
+    assert.equal(updated.delivery.producerFingerprint, null);
   });
 });

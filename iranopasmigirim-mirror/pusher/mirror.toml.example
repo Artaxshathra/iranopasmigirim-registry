@@ -1,7 +1,7 @@
 # Copy to /etc/mirror/mirror.toml and edit.
 
 registry_repo_path = "/srv/mirror-registry"
-registry_repo_url = "https://github.com/your-org/mirror-registry"
+registry_repo_url = "https://github.com/ardeshiri/inrtv-extension"
 registry_remote = "origin"
 registry_branch = "registrations"
 requests_subdir = "requests"
@@ -15,7 +15,7 @@ default_entry_path = "index.html"
 interval_minutes = 15
 max_requests_per_run = 10
 
-signing_key = "0xABCDEF1234567890"
+signing_key = "0xDD13EC3368AA05D1"
 gpg_passphrase_env = "GPG_PASSPHRASE"
 user_agent = "Mozilla/5.0 (compatible; offline-mirror-bot/3.0)"
 exclude_patterns = ["-*.zip", "-*.exe", "-*.dmg", "-*.pkg"]

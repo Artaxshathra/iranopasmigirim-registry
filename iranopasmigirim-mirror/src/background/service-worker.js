@@ -6,7 +6,13 @@
 // We keep this file thin: routing only. All real work lives in the modules
 // it imports, where it can be tested independently.
 
-import { syncOnce, fullStatus, onStatus, nextDelayMinutes } from './sync.js';
+import {
+  syncOnce,
+  fullStatus,
+  onStatus,
+  nextDelayMinutes,
+  runUserRecovery,
+} from './sync.js';
 import { serve } from './serve.js';
 import { fetchJsonFromBranch, fetchTextFromBranch } from './github.js';
 import {
@@ -109,6 +115,24 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         .then(() => { try { sendResponse({ ok: true }); } catch (_) {} })
         .catch((e) => {
           try { sendResponse({ ok: false, error: e && e.message }); }
+          catch (_) {}
+        });
+      return true;
+    }
+    case 'storage-recover': {
+      if (!isTrustedSyncSender(sender)) {
+        try { sendResponse({ ok: false, error: 'forbidden sender' }); } catch (_) {}
+        return false;
+      }
+      Promise.resolve()
+        .then(async () => {
+          const mode = msg && msg.mode === 'reset' ? 'reset' : 'evict';
+          const recovery = await runUserRecovery({ mode });
+          return { ok: true, recovery };
+        })
+        .then((result) => { try { sendResponse(result); } catch (_) {} })
+        .catch((e) => {
+          try { sendResponse({ ok: false, error: e && e.message ? e.message : String(e) }); }
           catch (_) {}
         });
       return true;

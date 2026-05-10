@@ -21,6 +21,8 @@ const els = {
   syncBtn: $('sync-now'),
   openSite: $('open-site'),
   repoSource: $('repo-source'),
+  recoverStorageBtn: $('recover-storage-btn'),
+  resetStorageBtn: $('reset-storage-btn'),
 
   registrationSection: $('registration-section'),
   requestedUrlInput: $('requested-url-input'),
@@ -209,6 +211,46 @@ els.syncBtn.addEventListener('click', () => {
   });
 });
 
+els.recoverStorageBtn.addEventListener('click', async () => {
+  hideRegistrationMessages();
+  els.recoverStorageBtn.disabled = true;
+  try {
+    const resp = await sendMessage({ type: 'storage-recover', mode: 'evict' });
+    if (!resp || !resp.ok) {
+      throw new Error(resp && resp.error ? resp.error : 'Failed to recover storage');
+    }
+    requestStatusUpdate();
+    const reclaimed = Number(resp.recovery && resp.recovery.reclaimedBytes ? resp.recovery.reclaimedBytes : 0);
+    const removed = Number(resp.recovery && resp.recovery.removed ? resp.recovery.removed : 0);
+    els.registrationMessage.hidden = false;
+    els.registrationMessage.textContent = `Recovery complete: removed ${removed} file(s), reclaimed ${formatBytes(reclaimed)}.`;
+  } catch (e) {
+    els.error.hidden = false;
+    els.error.textContent = (e && e.message) || String(e);
+  } finally {
+    els.recoverStorageBtn.disabled = false;
+  }
+});
+
+els.resetStorageBtn.addEventListener('click', async () => {
+  hideRegistrationMessages();
+  els.resetStorageBtn.disabled = true;
+  try {
+    const resp = await sendMessage({ type: 'storage-recover', mode: 'reset' });
+    if (!resp || !resp.ok) {
+      throw new Error(resp && resp.error ? resp.error : 'Failed to reset mirror cache');
+    }
+    requestStatusUpdate();
+    els.registrationMessage.hidden = false;
+    els.registrationMessage.textContent = 'Mirror cache reset. Run sync to repopulate content.';
+  } catch (e) {
+    els.error.hidden = false;
+    els.error.textContent = (e && e.message) || String(e);
+  } finally {
+    els.resetStorageBtn.disabled = false;
+  }
+});
+
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg && msg.type === 'status-update' && msg.status) {
     render(extendStats(msg.status));
@@ -306,6 +348,15 @@ function render(s) {
     els.error.textContent = s.lastError;
   } else {
     els.error.hidden = true;
+  }
+
+  if (s.lastRecovery && s.lastRecovery.mode === 'auto-evict') {
+    const removed = Number(s.lastRecovery.removed || 0);
+    const reclaimed = Number(s.lastRecovery.reclaimedBytes || 0);
+    if (removed > 0) {
+      els.error.hidden = false;
+      els.error.textContent = `Storage pressure handled automatically: removed ${removed} file(s), reclaimed ${formatBytes(reclaimed)}.`;
+    }
   }
 
   els.syncBtn.disabled = state === 'syncing';

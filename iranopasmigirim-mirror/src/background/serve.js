@@ -11,7 +11,7 @@
 // The /site/ prefix lets us reserve other paths for popup, options,
 // internal pages without ambiguity.
 
-import { getFile } from './db.js';
+import { getFile, touchFile } from './db.js';
 import { mimeFor, isHtml } from './mime.js';
 import { MIRROR_MANIFEST_PATH, SERVE_PATH, WHITELIST } from '../config.js';
 
@@ -190,6 +190,7 @@ function escapeHtml(s) {
 export async function serve(urlStr) {
   const path = urlToPath(urlStr);
   if (path === null) return null;
+  let servedPath = path;
   let record;
   try { record = await getFile(path); }
   catch (_) { record = null; }
@@ -199,9 +200,12 @@ export async function serve(urlStr) {
     if (!path.endsWith('.html') && !path.endsWith('.htm')) {
       try { record = await getFile(path.replace(/\/?$/, '/index.html')); }
       catch (_) { record = null; }
+      if (record) servedPath = path.replace(/\/?$/, '/index.html');
     }
   }
   if (!record) return notFoundResponse(path);
+
+  try { await touchFile(servedPath); } catch (_) {}
 
   let siteHost = '';
   try {

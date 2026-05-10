@@ -85,6 +85,10 @@ header .subtitle { font-size: 12px; color: var(--dim); margin-top: 2px; }
 
 .actions { display: flex; gap: 8px; }
 
+.storage-actions { display: flex; gap: 8px; }
+
+.storage-actions .secondary { flex: 1; font-size: 12px; }
+
 .primary, .secondary {
   flex: 1;
   padding: 8px 10px;

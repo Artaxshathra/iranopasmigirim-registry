@@ -55,7 +55,20 @@ export async function getFile(path) {
 
 export async function putFile(path, record) {
   const store = await tx('files', 'readwrite');
-  return req(store.put(record, path));
+  return req(store.put({ ...record, updatedAt: Date.now() }, path));
+}
+
+export async function touchFile(path, patch = {}) {
+  const store = await tx('files', 'readwrite');
+  const current = await req(store.get(path));
+  if (!current) return false;
+  const next = {
+    ...current,
+    ...patch,
+    lastAccessAt: Date.now(),
+  };
+  await req(store.put(next, path));
+  return true;
 }
 
 export async function deleteFile(path) {
@@ -69,6 +82,34 @@ export async function deleteFile(path) {
 export async function listPaths() {
   const store = await tx('files', 'readonly');
   return req(store.getAllKeys());
+}
+
+export async function listFileEntries() {
+  const store = await tx('files', 'readonly');
+  return new Promise((resolve, reject) => {
+    const out = [];
+    const cursorReq = store.openCursor();
+    cursorReq.onsuccess = (e) => {
+      const cursor = e.target.result;
+      if (!cursor) {
+        resolve(out);
+        return;
+      }
+      const value = cursor.value || {};
+      const size = value && value.content && typeof value.content.byteLength === 'number'
+        ? value.content.byteLength
+        : 0;
+      out.push({
+        path: String(cursor.key),
+        size,
+        siteHost: String(value.siteHost || '').trim().toLowerCase(),
+        updatedAt: Number(value.updatedAt || 0),
+        lastAccessAt: Number(value.lastAccessAt || 0),
+      });
+      cursor.continue();
+    };
+    cursorReq.onerror = () => reject(cursorReq.error);
+  });
 }
 
 // Aggregate stats for the popup. Walks every value once — fine for the
@@ -163,4 +204,38 @@ export async function compactFiles(maxBytes) {
     };
     cursorReq.onerror = () => reject(cursorReq.error);
   });
+}
+
+export async function evictFilesForQuota({ siteHost = '', targetBytes = 0, protectedPaths = [] } = {}) {
+  const wanted = Math.max(1, Number(targetBytes) || 0);
+  const protectedSet = new Set((protectedPaths || []).map((p) => String(p || '')));
+  const normalizedSiteHost = String(siteHost || '').trim().toLowerCase();
+
+  const entries = await listFileEntries();
+  const candidates = entries
+    .filter((entry) => entry.size > 0 && !protectedSet.has(entry.path))
+    .map((entry) => ({
+      ...entry,
+      priority: entry.siteHost && entry.siteHost === normalizedSiteHost ? 1 : 0,
+      freshness: Math.max(entry.lastAccessAt || 0, entry.updatedAt || 0),
+    }))
+    .sort((a, b) => {
+      if (a.priority !== b.priority) return a.priority - b.priority;
+      if (a.freshness !== b.freshness) return a.freshness - b.freshness;
+      return a.path.localeCompare(b.path);
+    });
+
+  let removed = 0;
+  let reclaimedBytes = 0;
+  const removedPaths = [];
+
+  for (const entry of candidates) {
+    if (reclaimedBytes >= wanted) break;
+    await deleteFile(entry.path);
+    reclaimedBytes += entry.size;
+    removed++;
+    removedPaths.push(entry.path);
+  }
+
+  return { removed, reclaimedBytes, removedPaths };
 }

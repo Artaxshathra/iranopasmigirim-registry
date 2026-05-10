@@ -21,11 +21,13 @@ import {
 } from './github.js';
 import {
   listPaths, getFile, putFile, deleteFile, getMeta, putMeta, putMetaBatch, stats, compactFiles,
+  clearAll, evictFilesForQuota, listFileEntries,
 } from './db.js';
 import {
   POLL_INTERVAL_MINUTES, MAX_BACKOFF_MINUTES,
   MAX_FILE_SIZE_BYTES, MAX_FILES_PER_SYNC, MAINTENANCE_INTERVAL_HOURS,
   MIRROR_MANIFEST_PATH, DEFAULT_ENTRY_PATH, WHITELIST,
+  STORAGE_RECOVERY_TARGET_BYTES, STALE_FILE_TTL_DAYS,
 } from '../config.js';
 
 // Single in-flight sync at a time. The alarm can fire while a previous
@@ -157,6 +159,7 @@ export async function syncOnce({ force = false } = {}) {
       setStatus({ progress: { done: 0, total: writes.length } });
       const failedWrites = [];
       let sawQuotaError = false;
+      const recoverySummary = { removed: 0, reclaimedBytes: 0 };
 
       // Sequential download — concurrent fetches would overrun the CDN's
       // rate-limiter (rare but real) and clog the SW's event loop. The
@@ -165,21 +168,44 @@ export async function syncOnce({ force = false } = {}) {
       // unchanged so the next sync retries missing paths.
       for (let i = 0; i < writes.length; i++) {
         const blob = writes[i];
+        let done = false;
+        let attemptedRecovery = false;
         try {
-          const buf = preloadedContent.has(blob.path)
-            ? preloadedContent.get(blob.path)
-            : await fetchRaw(userRepoUrl, blob.path, commit.sha);
-          if (buf.byteLength > MAX_FILE_SIZE_BYTES) {
-            throw new Error(`downloaded size exceeds MAX_FILE_SIZE_BYTES for ${blob.path}`);
+          while (!done) {
+            const buf = preloadedContent.has(blob.path)
+              ? preloadedContent.get(blob.path)
+              : await fetchRaw(userRepoUrl, blob.path, commit.sha);
+            if (buf.byteLength > MAX_FILE_SIZE_BYTES) {
+              throw new Error(`downloaded size exceeds MAX_FILE_SIZE_BYTES for ${blob.path}`);
+            }
+            const digest = await gitBlobShaHex(buf);
+            if (digest !== String(blob.sha || '').toLowerCase()) {
+              throw new Error(`blob sha mismatch for ${blob.path}`);
+            }
+            try {
+              await putFile(blob.path, {
+                content: buf,
+                sha: blob.sha,
+                siteHost: manifestMeta.siteHost,
+              });
+              done = true;
+            } catch (e) {
+              if (!isQuotaError(e) || attemptedRecovery) {
+                throw e;
+              }
+              attemptedRecovery = true;
+              sawQuotaError = true;
+              const recovered = await recoverStoragePressure({
+                siteHost: manifestMeta.siteHost,
+                targetBytes: Math.max(STORAGE_RECOVERY_TARGET_BYTES, Math.ceil(blob.size * 1.5)),
+              });
+              recoverySummary.removed += recovered.removed;
+              recoverySummary.reclaimedBytes += recovered.reclaimedBytes;
+              if (recovered.removed <= 0) {
+                throw e;
+              }
+            }
           }
-          const digest = await gitBlobShaHex(buf);
-          if (digest !== String(blob.sha || '').toLowerCase()) {
-            throw new Error(`blob sha mismatch for ${blob.path}`);
-          }
-          await putFile(blob.path, {
-            content: buf,
-            sha: blob.sha,
-          });
         } catch (e) {
           if (isQuotaError(e)) sawQuotaError = true;
           failedWrites.push(blob.path);
@@ -191,6 +217,15 @@ export async function syncOnce({ force = false } = {}) {
       if (failedWrites.length > 0) {
         if (sawQuotaError) await putMeta('storageFull', true);
         throw new Error(`sync incomplete: ${failedWrites.length} file(s) failed`);
+      }
+
+      if (recoverySummary.removed > 0) {
+        await putMeta('lastRecovery', {
+          mode: 'auto-evict',
+          removed: recoverySummary.removed,
+          reclaimedBytes: recoverySummary.reclaimedBytes,
+          at: Date.now(),
+        });
       }
 
       const failedDeletes = [];
@@ -241,9 +276,13 @@ async function runMaintenanceIfDue(now = Date.now()) {
   if (!shouldRunMaintenance(lastMaintenanceAt, now)) return;
   try {
     const { removed } = await compactFiles(MAX_FILE_SIZE_BYTES);
+    const staleRemoved = await evictStaleFiles(now);
     await putMeta('lastMaintenanceAt', now);
     if (removed > 0) {
       console.warn(`[sync] maintenance removed ${removed} stale file(s)`);
+    }
+    if (staleRemoved > 0) {
+      console.warn(`[sync] maintenance evicted ${staleRemoved} expired file(s)`);
     }
   } catch (e) {
     // Hygiene should never block content availability.
@@ -276,6 +315,7 @@ export async function fullStatus() {
   const last = (await getMeta('lastSyncAt')) || 0;
   const storageFull = Boolean(await getMeta('storageFull'));
   const activeSnapshot = (await getMeta('activeSnapshot')) || {};
+  const lastRecovery = (await getMeta('lastRecovery')) || null;
   return {
     ...status,
     lastSyncAt: status.lastSyncAt || last,
@@ -286,7 +326,80 @@ export async function fullStatus() {
     entryPath: activeSnapshot.entryPath || DEFAULT_ENTRY_PATH,
     requestId: activeSnapshot.requestId || null,
     commitSha: activeSnapshot.commitSha || null,
+    lastRecovery,
   };
+}
+
+export function validateSnapshotManifest(manifest, whitelist = WHITELIST) {
+  const siteHost = manifest && typeof manifest.siteHost === 'string'
+    ? manifest.siteHost.trim().toLowerCase()
+    : '';
+  if (!siteHost || !whitelist[siteHost]) {
+    throw new Error(`snapshot manifest host is not whitelisted: ${siteHost || 'unknown-host'}`);
+  }
+
+  const entryPath = sanitizeEntryPath(
+    manifest && typeof manifest.entryPath === 'string' ? manifest.entryPath : DEFAULT_ENTRY_PATH
+  );
+  if (!isPathAllowedForHost(entryPath, siteHost)) {
+    throw new Error(`snapshot entryPath is outside whitelist paths: ${entryPath}`);
+  }
+
+  const requestId = manifest && typeof manifest.requestId === 'string'
+    ? manifest.requestId.trim()
+    : null;
+
+  return {
+    siteHost,
+    entryPath,
+    requestId,
+  };
+}
+
+export async function recoverStoragePressure({ siteHost = '', targetBytes = STORAGE_RECOVERY_TARGET_BYTES } = {}) {
+  const result = await evictFilesForQuota({
+    siteHost,
+    targetBytes,
+    protectedPaths: [MIRROR_MANIFEST_PATH],
+  });
+  if (result.removed > 0) {
+    await putMeta('storageFull', false);
+  }
+  return result;
+}
+
+export async function runUserRecovery({ mode = 'evict' } = {}) {
+  const now = Date.now();
+  if (mode === 'reset') {
+    await clearAll();
+    await putMetaBatch([
+      ['storageFull', false],
+      ['lastRecovery', { mode: 'reset', removed: null, reclaimedBytes: null, at: now }],
+    ]);
+    setStatus({
+      state: 'idle',
+      lastError: null,
+      progress: null,
+      treeSha: null,
+      newContentArrived: false,
+      lastSyncAt: 0,
+    });
+    return { mode: 'reset', removed: null, reclaimedBytes: null, at: now };
+  }
+
+  const activeSnapshot = (await getMeta('activeSnapshot')) || {};
+  const outcome = await recoverStoragePressure({
+    siteHost: activeSnapshot.siteHost || '',
+    targetBytes: STORAGE_RECOVERY_TARGET_BYTES,
+  });
+  const payload = {
+    mode: 'evict',
+    removed: outcome.removed,
+    reclaimedBytes: outcome.reclaimedBytes,
+    at: now,
+  };
+  await putMeta('lastRecovery', payload);
+  return payload;
 }
 
 export function isQuotaError(err) {
@@ -349,30 +462,7 @@ async function loadAndValidateSnapshotManifest({ tree, userRepoUrl, commitSha, p
   } catch (_) {
     throw new Error('snapshot manifest is not valid JSON');
   }
-
-  const siteHost = manifest && typeof manifest.siteHost === 'string'
-    ? manifest.siteHost.trim().toLowerCase()
-    : '';
-  if (!siteHost || !WHITELIST[siteHost]) {
-    throw new Error(`snapshot manifest host is not whitelisted: ${siteHost || 'unknown-host'}`);
-  }
-
-  const entryPath = sanitizeEntryPath(
-    manifest && typeof manifest.entryPath === 'string' ? manifest.entryPath : DEFAULT_ENTRY_PATH
-  );
-  if (!isPathAllowedForHost(entryPath, siteHost)) {
-    throw new Error(`snapshot entryPath is outside whitelist paths: ${entryPath}`);
-  }
-
-  const requestId = manifest && typeof manifest.requestId === 'string'
-    ? manifest.requestId.trim()
-    : null;
-
-  return {
-    siteHost,
-    entryPath,
-    requestId,
-  };
+  return validateSnapshotManifest(manifest);
 }
 
 function isPathAllowedForHost(path, siteHost) {
@@ -421,4 +511,17 @@ async function persistRegistrationSigner(registrationDraft, signerFingerprint) {
 
 function normalizeFingerprint(value) {
   return String(value || '').toUpperCase().replace(/[^0-9A-F]/g, '');
+}
+
+export async function evictStaleFiles(now = Date.now()) {
+  const ttlMs = STALE_FILE_TTL_DAYS * 24 * 60 * 60 * 1000;
+  const entries = await listFileEntries();
+  let removed = 0;
+  for (const entry of entries) {
+    const freshness = Math.max(entry.lastAccessAt || 0, entry.updatedAt || 0);
+    if (!freshness || (now - freshness) < ttlMs) continue;
+    await deleteFile(entry.path);
+    removed++;
+  }
+  return removed;
 }
