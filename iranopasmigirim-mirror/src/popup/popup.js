@@ -21,23 +21,58 @@ const els = {
   syncBtn: $('sync-now'),
   openSite: $('open-site'),
   repoSource: $('repo-source'),
+
+  registrationSection: $('registration-section'),
+  requestedUrlInput: $('requested-url-input'),
+  createRequestBtn: $('create-request-btn'),
+  refreshRegistrationBtn: $('refresh-registration-btn'),
+  registrationMessage: $('registration-message'),
+  registrationError: $('registration-error'),
+  registryState: $('registry-state'),
+  ownershipState: $('ownership-state'),
+  deliveryState: $('delivery-state'),
+  step1Meta: $('step1-meta'),
+  step1Content: $('step1-content'),
+  step2Meta: $('step2-meta'),
+  step2Content: $('step2-content'),
 };
 
-els.openSite.href = chrome.runtime.getURL(SERVE_PATH);
+els.openSite.href = chrome.runtime.getURL(`${SERVE_PATH}index.html`);
+
+let lastFullStats = { fileCount: 0, bytes: 0 };
+let currentRepoUrl = null;
+let currentRegistration = null;
+
+init().catch((e) => {
+  console.error('[popup] init failed', e && e.message);
+  render({ state: 'error', lastError: (e && e.message) || String(e) });
+});
 
 async function init() {
   const userRepoUrl = await getStoredRepoUrl();
+  currentRepoUrl = userRepoUrl;
   if (userRepoUrl) {
-    els.configSection.hidden = true;
-    els.statusSection.hidden = false;
-    els.repoUrlInput.value = userRepoUrl;
-    els.repoSource.textContent = userRepoUrl;
+    showConfiguredUi(userRepoUrl);
+    await loadRegistrationState();
     requestStatusUpdate();
     return;
   }
 
+  showUnconfiguredUi();
+}
+
+function showConfiguredUi(repoUrl) {
+  els.configSection.hidden = true;
+  els.statusSection.hidden = false;
+  els.registrationSection.hidden = false;
+  els.repoUrlInput.value = repoUrl;
+  els.repoSource.textContent = repoUrl;
+}
+
+function showUnconfiguredUi() {
   els.configSection.hidden = false;
   els.statusSection.hidden = true;
+  els.registrationSection.hidden = true;
   els.repoSource.textContent = 'not configured';
 }
 
@@ -62,6 +97,13 @@ function hideConfigMessages() {
   els.configMessage.textContent = '';
 }
 
+function hideRegistrationMessages() {
+  els.registrationError.hidden = true;
+  els.registrationError.textContent = '';
+  els.registrationMessage.hidden = true;
+  els.registrationMessage.textContent = '';
+}
+
 els.repoUrlSaveBtn.addEventListener('click', async () => {
   hideConfigMessages();
   const url = String(els.repoUrlInput.value || '').trim();
@@ -78,16 +120,76 @@ els.repoUrlSaveBtn.addEventListener('click', async () => {
   }
 
   try {
-    await new Promise((resolve) => chrome.storage.local.set({ userRepoUrl: url }, resolve));
+    await setStorage({ userRepoUrl: url });
+    currentRepoUrl = url;
+    showConfiguredUi(url);
     els.configMessage.hidden = false;
-    els.configMessage.textContent = 'Saved. Starting sync from this repository.';
-    els.repoSource.textContent = url;
-    els.configSection.hidden = true;
-    els.statusSection.hidden = false;
+    els.configMessage.textContent = 'Saved. You can now create a registration request.';
+    hideRegistrationMessages();
+    await loadRegistrationState();
     requestStatusUpdate();
   } catch (e) {
     els.configError.hidden = false;
     els.configError.textContent = `Failed to save: ${(e && e.message) || e}`;
+  }
+});
+
+els.createRequestBtn.addEventListener('click', async () => {
+  hideRegistrationMessages();
+  const requestedUrl = String(els.requestedUrlInput.value || '').trim();
+
+  if (!currentRepoUrl) {
+    els.registrationError.hidden = false;
+    els.registrationError.textContent = 'Configure your GitHub repo first.';
+    return;
+  }
+  if (!requestedUrl) {
+    els.registrationError.hidden = false;
+    els.registrationError.textContent = 'Enter a requested website URL.';
+    return;
+  }
+
+  els.createRequestBtn.disabled = true;
+  try {
+    const resp = await sendMessage({
+      type: 'registration-create',
+      payload: {
+        userRepoUrl: currentRepoUrl,
+        requestedUrl,
+      },
+    });
+    if (!resp || !resp.ok) {
+      throw new Error(resp && resp.error ? resp.error : 'Failed to create registration request');
+    }
+    currentRegistration = resp.draft || null;
+    renderRegistration(resp.draft, resp.instructions);
+    els.registrationMessage.hidden = false;
+    els.registrationMessage.textContent = 'Request package created. Complete both commits, then refresh state.';
+  } catch (e) {
+    els.registrationError.hidden = false;
+    els.registrationError.textContent = (e && e.message) || String(e);
+  } finally {
+    els.createRequestBtn.disabled = false;
+  }
+});
+
+els.refreshRegistrationBtn.addEventListener('click', async () => {
+  hideRegistrationMessages();
+  els.refreshRegistrationBtn.disabled = true;
+  try {
+    const resp = await sendMessage({ type: 'registration-refresh' });
+    if (!resp || !resp.ok) {
+      throw new Error(resp && resp.error ? resp.error : 'Failed to refresh registration state');
+    }
+    currentRegistration = resp.draft || null;
+    renderRegistration(resp.draft, resp.instructions);
+    els.registrationMessage.hidden = false;
+    els.registrationMessage.textContent = 'Registration state refreshed from GitHub.';
+  } catch (e) {
+    els.registrationError.hidden = false;
+    els.registrationError.textContent = (e && e.message) || String(e);
+  } finally {
+    els.refreshRegistrationBtn.disabled = false;
   }
 });
 
@@ -113,7 +215,6 @@ chrome.runtime.onMessage.addListener((msg) => {
   }
 });
 
-let lastFullStats = { fileCount: 0, bytes: 0 };
 function extendStats(s) {
   if (typeof s.fileCount === 'number') lastFullStats.fileCount = s.fileCount;
   if (typeof s.bytes === 'number') lastFullStats.bytes = s.bytes;
@@ -130,6 +231,52 @@ function requestStatusUpdate() {
   });
 }
 
+async function loadRegistrationState() {
+  const resp = await sendMessage({ type: 'registration-get' });
+  if (!resp || !resp.ok) {
+    throw new Error(resp && resp.error ? resp.error : 'Unable to load registration state');
+  }
+  currentRegistration = resp.draft || null;
+  renderRegistration(resp.draft, resp.instructions);
+}
+
+function renderRegistration(draft, instructions) {
+  if (!draft) {
+    els.registryState.textContent = 'not started';
+    els.ownershipState.textContent = 'not verified';
+    els.deliveryState.textContent = 'not ready';
+    els.step1Meta.textContent = '-';
+    els.step1Content.value = '';
+    els.step2Meta.textContent = '-';
+    els.step2Content.value = '';
+    return;
+  }
+
+  if (!els.requestedUrlInput.value) {
+    els.requestedUrlInput.value = draft.requestedUrl || '';
+  }
+
+  const regState = draft.registry && draft.registry.state ? draft.registry.state : 'pending';
+  els.registryState.textContent = regState;
+  els.ownershipState.textContent = draft.ownership && draft.ownership.verified ? 'verified' : 'not verified';
+
+  if (draft.delivery && draft.delivery.ready) {
+    const commitSha = draft.delivery.commitSha ? draft.delivery.commitSha.slice(0, 8) : 'ready';
+    els.deliveryState.textContent = `ready (${commitSha})`;
+  } else {
+    els.deliveryState.textContent = 'not ready';
+  }
+
+  if (instructions && instructions.step1) {
+    els.step1Meta.textContent = `${instructions.step1.repoUrl} @ ${instructions.step1.branch} → ${instructions.step1.path}`;
+    els.step1Content.value = instructions.step1.content || '';
+  }
+  if (instructions && instructions.step2) {
+    els.step2Meta.textContent = `${instructions.step2.repoUrl} @ ${instructions.step2.branch} → ${instructions.step2.path}`;
+    els.step2Content.value = instructions.step2.content || '';
+  }
+}
+
 function render(s) {
   if (!s) return;
   const state = s.storageFull ? 'warn' : (s.state || 'idle');
@@ -139,6 +286,8 @@ function render(s) {
   els.lastSync.textContent = formatLastSync(s.lastSyncAt);
   els.fileCount.textContent = (s.fileCount || 0).toLocaleString();
   els.size.textContent = formatBytes(s.bytes || 0);
+  const entryPath = String(s.entryPath || '').replace(/^\/+/, '') || 'index.html';
+  els.openSite.href = chrome.runtime.getURL(`${SERVE_PATH}${entryPath}`);
 
   if (s.progress && s.progress.total > 0) {
     els.progress.hidden = false;
@@ -199,6 +348,18 @@ function formatBytes(b) {
   return `${(b / 1024 / 1024 / 1024 / 1024).toFixed(2)} TB`;
 }
 
-init().catch((e) => {
-  console.error('[popup] init failed', e && e.message);
-});
+function sendMessage(message) {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage(message, (resp) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+      resolve(resp);
+    });
+  });
+}
+
+function setStorage(data) {
+  return new Promise((resolve) => chrome.storage.local.set(data, resolve));
+}

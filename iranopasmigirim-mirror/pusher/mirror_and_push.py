@@ -1,22 +1,23 @@
 #!/usr/bin/env python3
 """mirror_and_push.py
 
-Producer-side mirror app.
+Phase 3 producer: request-driven, registry-based mirroring.
 
-This CLI is intentionally single-file and stdlib-heavy for easier auditing.
-It supports:
-  - init: guided config bootstrap
-  - doctor: prerequisite checks
-  - run-once: scrape -> sanitize -> signed commit -> push
-  - daemon: periodic loop with lock to prevent overlap
+Flow per cycle:
+  1. Pull registry repository branch.
+  2. Read request documents from requests/*.json.
+  3. Verify user ownership proof in user repo request branch.
+  4. Mirror + sanitize approved request URLs.
+  5. Push signed delivery commit to user's delivery branch.
+  6. Write status/<requestId>.json back to registry and push signed update.
 """
 
 from __future__ import annotations
 
 import argparse
 import fcntl
+import json
 import os
-import pwd
 import re
 import shutil
 import subprocess
@@ -29,36 +30,45 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
-DEFAULT_CONFIG = """# Mirror producer configuration
+DEFAULT_CONFIG = """# Mirror producer configuration (Phase 3)
 
-target_url = "https://iranopasmigirim.com/"
-repo_path = "/srv/mirror-repo"
-content_subdir = "content"
-git_remote = "origin"
-git_branch = "main"
+# Registry repo (fixed producer-controlled inbox/outbox).
+registry_repo_path = "/srv/mirror-registry"
+registry_repo_url = "https://github.com/your-org/mirror-registry"
+registry_remote = "origin"
+registry_branch = "registrations"
+requests_subdir = "requests"
+status_subdir = "status"
 
-# Run interval used by daemon mode only.
+# Per-user local checkouts root.
+user_repos_root = "/srv/mirror-users"
+
+# Delivery settings.
+# Empty means write mirrored files at repository root (recommended).
+delivery_subdir = ""
+default_delivery_branch = "content"
+default_entry_path = "index.html"
+
+# Processing cadence for daemon mode.
 interval_minutes = 15
+max_requests_per_run = 10
 
-# GPG signing key id used for signed commits.
+# Signed commits.
 signing_key = "0xABCDEF1234567890"
-
-# Environment variable containing gpg passphrase if key is passphrase-protected.
 gpg_passphrase_env = "GPG_PASSPHRASE"
 
-# Scraper behavior
-user_agent = "Mozilla/5.0 (compatible; offline-mirror-bot/2.0)"
+# Mirroring behavior.
+user_agent = "Mozilla/5.0 (compatible; offline-mirror-bot/3.0)"
 exclude_patterns = ["-*.zip", "-*.exe", "-*.dmg", "-*.pkg"]
 min_files = 20
 max_files = 5000
 
-# Local repository housekeeping (sender side).
-# Run lightweight git maintenance at most once per this many hours.
-maintenance_interval_hours = 24
-# Prune unreachable git objects older than this many days.
-prune_after_days = 30
+# Whitelist: only these hosts can be mirrored.
+whitelist_hosts = [
+  "bbc.com",
+]
 
-# Fail-closed rewrite behavior for high-risk URL classes in mirrored HTML.
+# Security rewrites.
 block_stream_extensions = [".m3u8", ".mpd", ".ism/manifest", ".f4m", ".ts"]
 block_payment_domains = [
   "zarinpal.com",
@@ -67,10 +77,14 @@ block_payment_domains = [
   "paypal.com",
   "stripe.com",
 ]
+
+# Local repository housekeeping.
+maintenance_interval_hours = 24
+prune_after_days = 30
 """
 
 SERVICE_TEMPLATE = """[Unit]
-Description=Mirror producer run-once
+Description=Mirror producer request processor
 After=network-online.target
 Wants=network-online.target
 
@@ -78,18 +92,18 @@ Wants=network-online.target
 Type=oneshot
 User={user}
 Group={group}
-WorkingDirectory={repo_path}
+WorkingDirectory={registry_repo_path}
 EnvironmentFile=-/etc/mirror/secrets.env
 ExecStart=/usr/local/bin/mirror_and_push.py --config {config_path} run-once
 StandardOutput=journal
 StandardError=journal
-TimeoutStartSec=30m
+TimeoutStartSec=45m
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
 PrivateDevices=true
-ReadWritePaths={repo_path}
+ReadWritePaths={registry_repo_path} {user_repos_root}
 """
 
 TIMER_TEMPLATE = """[Unit]
@@ -108,26 +122,42 @@ WantedBy=timers.target
 
 @dataclass
 class Config:
-    target_url: str
-    repo_path: Path
-    content_subdir: str
-    git_remote: str
-    git_branch: str
+    registry_repo_path: Path
+    registry_repo_url: str
+    registry_remote: str
+    registry_branch: str
+    requests_subdir: str
+    status_subdir: str
+    user_repos_root: Path
+    delivery_subdir: str
+    default_delivery_branch: str
+    default_entry_path: str
     interval_minutes: int
+    max_requests_per_run: int
     signing_key: str
     gpg_passphrase_env: str
     user_agent: str
     exclude_patterns: list[str]
     min_files: int
     max_files: int
+    whitelist_hosts: list[str]
     maintenance_interval_hours: int
     prune_after_days: int
     block_stream_extensions: list[str]
     block_payment_domains: list[str]
 
-    @property
-    def content_path(self) -> Path:
-        return self.repo_path / self.content_subdir
+
+@dataclass
+class RequestDoc:
+    request_id: str
+    user_repo_url: str
+    requested_url: str
+    site_host: str
+    ownership_branch: str
+    ownership_challenge_path: str
+    ownership_nonce: str
+    delivery_branch: str
+    delivery_manifest_path: str
 
 
 def run(cmd: list[str], cwd: Path | None = None, check: bool = True, env: dict[str, str] | None = None):
@@ -135,14 +165,35 @@ def run(cmd: list[str], cwd: Path | None = None, check: bool = True, env: dict[s
     return subprocess.run(cmd, cwd=str(cwd) if cwd else None, check=check, env=env)
 
 
+def run_capture(cmd: list[str], cwd: Path | None = None, check: bool = True) -> str:
+    print(f"$ {' '.join(cmd)}", flush=True)
+    p = subprocess.run(
+        cmd,
+        cwd=str(cwd) if cwd else None,
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if check and p.returncode != 0:
+        msg = (p.stderr or p.stdout or "command failed").strip()
+        raise SystemExit(msg)
+    return (p.stdout or "").strip()
+
+
 def die(msg: str) -> None:
     raise SystemExit(msg)
 
 
+def normalize_host(host: str) -> str:
+    h = host.strip().lower()
+    return h[4:] if h.startswith("www.") else h
+
+
 def validate_target_url(url: str) -> str:
     u = urlparse(url.strip())
-    if u.scheme not in {"http", "https"} or not u.netloc:
-        die(f"invalid target URL: {url!r} (must be full http(s) URL)")
+    if u.scheme != "https" or not u.netloc:
+        die(f"invalid target URL: {url!r} (must be full https URL)")
     return url.strip()
 
 
@@ -206,113 +257,9 @@ def prompt_int(label: str, default: int, validator):
             print(f"[input error] {exc}", flush=True)
 
 
-def check_repo_remote(repo_url: str, branch: str) -> None:
-    probe = subprocess.run(
-        ["git", "ls-remote", "--heads", repo_url, branch],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
-    if probe.returncode != 0:
-        err = (probe.stderr or "").strip() or "unable to access repository"
-        die(f"repo-url check failed: {err}")
-    if not (probe.stdout or "").strip():
-        die(f"repo-url check failed: branch {branch!r} was not found on remote")
-
-
 def require_root() -> None:
     if os.geteuid() != 0:
         raise SystemExit("setup-system must run as root")
-
-
-def run_as_user(user: str, cmd: list[str], cwd: Path | None = None, check: bool = True) -> subprocess.CompletedProcess:
-    if shutil.which("runuser"):
-        wrapped = ["runuser", "-u", user, "--"] + cmd
-        return run(wrapped, cwd=cwd, check=check)
-    if shutil.which("sudo"):
-        wrapped = ["sudo", "-u", user] + cmd
-        return run(wrapped, cwd=cwd, check=check)
-    raise SystemExit("runuser/sudo is required to execute commands as the mirror user")
-
-
-def write_file(path: Path, content: str, mode: int = 0o644) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
-    os.chmod(path, mode)
-
-
-def config_from_values(target_url: str, repo_path: Path, signing_key: str, branch: str, interval_minutes: int) -> str:
-    content = DEFAULT_CONFIG
-    content = content.replace('target_url = "https://iranopasmigirim.com/"', f'target_url = "{target_url}"')
-    content = content.replace('repo_path = "/srv/mirror-repo"', f'repo_path = "{repo_path}"')
-    content = content.replace('signing_key = "0xABCDEF1234567890"', f'signing_key = "{signing_key}"')
-    content = content.replace('git_branch = "main"', f'git_branch = "{branch}"')
-    content = content.replace('interval_minutes = 15', f'interval_minutes = {interval_minutes}')
-    return content
-
-
-def ensure_system_user(user: str, group: str) -> None:
-    try:
-        pwd.getpwnam(user)
-    except KeyError:
-        run(["useradd", "-r", "-m", "-s", "/usr/sbin/nologin", user])
-
-    if group != user:
-        run(["groupadd", "-f", group], check=False)
-        run(["usermod", "-a", "-G", group, user], check=False)
-
-
-def ensure_repo_checkout(repo_url: str, repo_path: Path, user: str, branch: str) -> None:
-    repo_path.parent.mkdir(parents=True, exist_ok=True)
-    if not (repo_path / ".git").is_dir():
-        run_as_user(user, ["git", "clone", "-b", branch, repo_url, str(repo_path)])
-    else:
-        run_as_user(user, ["git", "-C", str(repo_path), "fetch", "--all", "--prune"])
-        run_as_user(user, ["git", "-C", str(repo_path), "checkout", branch])
-    run(["chown", "-R", f"{user}:{user}", str(repo_path)])
-
-
-def install_binary_from_self() -> None:
-    src = Path(__file__).resolve()
-    dest = Path("/usr/local/bin/mirror_and_push.py")
-    shutil.copy2(src, dest)
-    os.chmod(dest, 0o755)
-
-
-def install_systemd_units(config_path: Path, repo_path: Path, user: str, group: str, interval_minutes: int) -> None:
-    service = SERVICE_TEMPLATE.format(
-        user=user,
-        group=group,
-        repo_path=str(repo_path),
-        config_path=str(config_path),
-    )
-    timer = TIMER_TEMPLATE.format(interval_minutes=interval_minutes)
-    write_file(Path("/etc/systemd/system/mirror.service"), service, mode=0o644)
-    write_file(Path("/etc/systemd/system/mirror.timer"), timer, mode=0o644)
-
-
-def maybe_install_deps() -> None:
-    if not shutil.which("apt-get"):
-        raise SystemExit("--install-deps requested but apt-get was not found")
-    run(["apt-get", "update", "-y"])
-    run([
-        "apt-get",
-        "install",
-        "-y",
-        "--no-install-recommends",
-        "python3",
-        "git",
-        "gpg",
-        "httrack",
-    ])
-
-
-def write_default_secrets_file() -> None:
-    path = Path("/etc/mirror/secrets.env")
-    if path.exists():
-        return
-    content = "# Optional. Set if your key is passphrase-protected.\nGPG_PASSPHRASE=\n"
-    write_file(path, content, mode=0o600)
 
 
 def parse_toml_text(content: str) -> dict:
@@ -332,18 +279,25 @@ def parse_toml_text(content: str) -> dict:
 def load_config(path: Path) -> Config:
     raw = parse_toml_text(path.read_text(encoding="utf-8"))
     return Config(
-        target_url=str(raw["target_url"]),
-        repo_path=Path(str(raw["repo_path"])).expanduser().resolve(),
-        content_subdir=str(raw.get("content_subdir", "content")),
-        git_remote=str(raw.get("git_remote", "origin")),
-        git_branch=str(raw.get("git_branch", "main")),
+        registry_repo_path=Path(str(raw["registry_repo_path"])).expanduser().resolve(),
+        registry_repo_url=str(raw["registry_repo_url"]),
+        registry_remote=str(raw.get("registry_remote", "origin")),
+        registry_branch=str(raw.get("registry_branch", "registrations")),
+        requests_subdir=str(raw.get("requests_subdir", "requests")),
+        status_subdir=str(raw.get("status_subdir", "status")),
+        user_repos_root=Path(str(raw.get("user_repos_root", "/srv/mirror-users"))).expanduser().resolve(),
+        delivery_subdir=str(raw.get("delivery_subdir", "")),
+        default_delivery_branch=str(raw.get("default_delivery_branch", "content")),
+        default_entry_path=str(raw.get("default_entry_path", "index.html")),
         interval_minutes=int(raw.get("interval_minutes", 15)),
+        max_requests_per_run=int(raw.get("max_requests_per_run", 10)),
         signing_key=str(raw["signing_key"]),
         gpg_passphrase_env=str(raw.get("gpg_passphrase_env", "GPG_PASSPHRASE")),
-        user_agent=str(raw.get("user_agent", "Mozilla/5.0 (compatible; offline-mirror-bot/2.0)")),
+        user_agent=str(raw.get("user_agent", "Mozilla/5.0 (compatible; offline-mirror-bot/3.0)")),
         exclude_patterns=[str(x) for x in raw.get("exclude_patterns", [])],
         min_files=int(raw.get("min_files", 20)),
         max_files=int(raw.get("max_files", 5000)),
+        whitelist_hosts=[normalize_host(str(x)) for x in raw.get("whitelist_hosts", [])],
         maintenance_interval_hours=int(raw.get("maintenance_interval_hours", 24)),
         prune_after_days=int(raw.get("prune_after_days", 30)),
         block_stream_extensions=[str(x).lower() for x in raw.get("block_stream_extensions", [])],
@@ -352,11 +306,12 @@ def load_config(path: Path) -> Config:
 
 
 def validate_config(cfg: Config) -> None:
-    validate_target_url(cfg.target_url)
-    if not (cfg.repo_path / ".git").is_dir():
-        die(f"repo_path is not a git checkout: {cfg.repo_path}")
+    if not cfg.registry_repo_url.strip():
+        die("registry_repo_url must be set")
     if cfg.interval_minutes < 1:
         die("interval_minutes must be >= 1")
+    if cfg.max_requests_per_run < 1:
+        die("max_requests_per_run must be >= 1")
     if cfg.min_files < 1 or cfg.max_files < cfg.min_files:
         die("min_files/max_files values are invalid")
     if cfg.maintenance_interval_hours < 1:
@@ -365,6 +320,8 @@ def validate_config(cfg: Config) -> None:
         die("prune_after_days must be >= 1")
     if not cfg.signing_key.strip():
         die("signing_key must be set")
+    if not cfg.whitelist_hosts:
+        die("whitelist_hosts must include at least one host")
 
 
 def ensure_tools() -> None:
@@ -374,19 +331,150 @@ def ensure_tools() -> None:
         raise SystemExit(f"missing required tools: {', '.join(missing)}")
 
 
+def parse_github_repo_parts(repo_url: str) -> tuple[str, str]:
+    v = repo_url.strip()
+    m = re.match(r"^https://github\.com/([^/]+)/([^/]+?)(?:\.git)?$", v, flags=re.IGNORECASE)
+    if m:
+        return m.group(1), m.group(2)
+    m = re.match(r"^git@github\.com:([^/]+)/([^/]+?)(?:\.git)?$", v, flags=re.IGNORECASE)
+    if m:
+        return m.group(1), m.group(2)
+    m = re.match(r"^ssh://git@github\.com/([^/]+)/([^/]+?)(?:\.git)?$", v, flags=re.IGNORECASE)
+    if m:
+        return m.group(1), m.group(2)
+    raise SystemExit(f"unsupported GitHub repo URL format: {repo_url}")
+
+
+def sanitize_relpath(path: str) -> str:
+    p = path.strip().replace("\\", "/")
+    if not p or p.startswith("/") or ".." in p.split("/"):
+        raise SystemExit(f"invalid repository relative path: {path!r}")
+    return p
+
+
+def user_repo_checkout_dir(cfg: Config, user_repo_url: str) -> Path:
+    owner, repo = parse_github_repo_parts(user_repo_url)
+    safe = f"{owner}__{repo}".lower()
+    return cfg.user_repos_root / safe
+
+
+def ensure_repo_checkout(repo_url: str, repo_path: Path, branch: str, remote: str = "origin") -> None:
+    repo_path.parent.mkdir(parents=True, exist_ok=True)
+    if not (repo_path / ".git").is_dir():
+        run(["git", "clone", repo_url, str(repo_path)])
+
+    run(["git", "remote", "set-url", remote, repo_url], cwd=repo_path)
+    run(["git", "fetch", remote, "--prune"], cwd=repo_path)
+
+    remote_ref = f"{remote}/{branch}"
+    check_branch = subprocess.run(
+        ["git", "show-ref", "--verify", f"refs/remotes/{remote_ref}"],
+        cwd=str(repo_path),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if check_branch.returncode == 0:
+        run(["git", "checkout", "-B", branch, remote_ref], cwd=repo_path)
+    else:
+        run(["git", "checkout", "-B", branch], cwd=repo_path)
+
+
+def update_registry_checkout(cfg: Config) -> None:
+    ensure_repo_checkout(
+        repo_url=cfg.registry_repo_url,
+        repo_path=cfg.registry_repo_path,
+        branch=cfg.registry_branch,
+        remote=cfg.registry_remote,
+    )
+    run(["git", "pull", "--ff-only", cfg.registry_remote, cfg.registry_branch], cwd=cfg.registry_repo_path)
+
+
+def request_files(cfg: Config) -> list[Path]:
+    req_root = cfg.registry_repo_path / cfg.requests_subdir
+    if not req_root.is_dir():
+        return []
+    return sorted(req_root.rglob("*.json"))
+
+
+def parse_request_doc(data: dict, cfg: Config) -> RequestDoc:
+    if not isinstance(data, dict):
+        raise SystemExit("request document is not an object")
+
+    request_id = str(data.get("requestId", "")).strip()
+    if not request_id or not re.fullmatch(r"[a-zA-Z0-9._:-]{6,128}", request_id):
+        raise SystemExit("requestId is missing or invalid")
+
+    user_repo_url = validate_repo_url(str(data.get("userRepoUrl", "")))
+    requested_url = validate_target_url(str(data.get("requestedUrl", "")))
+
+    site_host = normalize_host(str(data.get("siteHost", "")).strip())
+    if not site_host:
+        site_host = normalize_host(urlparse(requested_url).hostname or "")
+
+    ownership = data.get("ownership", {})
+    if not isinstance(ownership, dict):
+        raise SystemExit("ownership block missing")
+
+    ownership_branch = validate_branch_name(str(ownership.get("branch", "requests")))
+    ownership_challenge_path = sanitize_relpath(str(ownership.get("challengePath", "")))
+    ownership_nonce = str(ownership.get("nonce", "")).strip()
+    if not ownership_nonce:
+        raise SystemExit("ownership nonce missing")
+
+    delivery = data.get("delivery", {})
+    if not isinstance(delivery, dict):
+        delivery = {}
+
+    delivery_branch = str(delivery.get("branch", cfg.default_delivery_branch)).strip() or cfg.default_delivery_branch
+    delivery_branch = validate_branch_name(delivery_branch)
+    delivery_manifest_path = sanitize_relpath(str(delivery.get("manifestPath", "_mirror/manifest.json")))
+
+    return RequestDoc(
+        request_id=request_id,
+        user_repo_url=user_repo_url,
+        requested_url=requested_url,
+        site_host=site_host,
+        ownership_branch=ownership_branch,
+        ownership_challenge_path=ownership_challenge_path,
+        ownership_nonce=ownership_nonce,
+        delivery_branch=delivery_branch,
+        delivery_manifest_path=delivery_manifest_path,
+    )
+
+
+def is_host_allowed(site_host: str, cfg: Config) -> bool:
+    return normalize_host(site_host) in set(cfg.whitelist_hosts)
+
+
+def git_show_remote_file(repo_path: Path, remote: str, branch: str, relpath: str) -> str | None:
+    rel = sanitize_relpath(relpath)
+    run(["git", "fetch", remote, branch], cwd=repo_path)
+    ref = f"{remote}/{branch}:{rel}"
+    p = subprocess.run(
+        ["git", "show", ref],
+        cwd=str(repo_path),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if p.returncode != 0:
+        return None
+    return p.stdout
+
+
 def advisory_safety_note() -> None:
     print(
-        "[note] No mirror can guarantee zero abuse risk. This app is fail-closed by default for "
-        "known payment/stream patterns and strips interactive posting surfaces where possible.",
+        "[note] Producer enforces whitelist + ownership proof + fail-closed sanitization. "
+        "This reduces risk but does not guarantee zero abuse in all conditions.",
         flush=True,
     )
 
 
-def scrape_site(cfg: Config, stage_dir: Path) -> Path:
-    host = urlparse(cfg.target_url).netloc
+def scrape_site(cfg: Config, target_url: str, stage_dir: Path) -> Path:
+    host = urlparse(target_url).netloc
     cmd = [
         "httrack",
-        cfg.target_url,
+        target_url,
         "-O",
         str(stage_dir),
         "--robots=0",
@@ -402,10 +490,7 @@ def scrape_site(cfg: Config, stage_dir: Path) -> Path:
     candidates = [p for p in stage_dir.iterdir() if p.is_dir() and not p.name.startswith("hts-")]
     if not candidates:
         raise SystemExit("scrape produced no host directory")
-
-    # Pick the largest candidate directory as the host content root.
-    host_dir = max(candidates, key=lambda p: sum(1 for _ in p.rglob("*")))
-    return host_dir
+    return max(candidates, key=lambda p: sum(1 for _ in p.rglob("*")))
 
 
 def clear_scraper_control_files(content_dir: Path) -> None:
@@ -428,28 +513,25 @@ def is_stream_url(url: str, blocked_exts: list[str]) -> bool:
 
 
 def sanitize_html_text(html: str, cfg: Config) -> str:
-    # Strip active script/embed surfaces for read-only mirror safety.
-    html = re.sub(r"<script\b[^>]*>.*?</script>", "", html, flags=re.IGNORECASE | re.DOTALL)
-    html = re.sub(r"<(iframe|object|embed)\b[^>]*>.*?</\1>", "", html, flags=re.IGNORECASE | re.DOTALL)
-    html = re.sub(r"\son[a-z]+\s*=\s*([\"']).*?\1", "", html, flags=re.IGNORECASE | re.DOTALL)
-    html = re.sub(r"\son[a-z]+\s*=\s*[^\s>]+", "", html, flags=re.IGNORECASE)
+    html = re.sub(r"<script\\b[^>]*>.*?</script>", "", html, flags=re.IGNORECASE | re.DOTALL)
+    html = re.sub(r"<(iframe|object|embed)\\b[^>]*>.*?</\\1>", "", html, flags=re.IGNORECASE | re.DOTALL)
+    html = re.sub(r"\\son[a-z]+\\s*=\\s*([\"']).*?\\1", "", html, flags=re.IGNORECASE | re.DOTALL)
+    html = re.sub(r"\\son[a-z]+\\s*=\\s*[^\\s>]+", "", html, flags=re.IGNORECASE)
     html = re.sub(
-        r"<meta\b([^>]*?)http-equiv\s*=\s*([\"']?)refresh\2([^>]*)>",
+        r"<meta\\b([^>]*?)http-equiv\\s*=\\s*([\"']?)refresh\\2([^>]*)>",
         "",
         html,
         flags=re.IGNORECASE,
     )
 
-    # Disable all forms (read-only mirror policy).
     html = re.sub(
-        r"<form\b([^>]*)>",
-        r'<form\1 action="/__mirror_blocked.html?reason=form" method="get" onsubmit="return false;">',
+        r"<form\\b([^>]*)>",
+        r'<form\\1 action="/__mirror_blocked.html?reason=form" method="get" onsubmit="return false;">',
         html,
         flags=re.IGNORECASE,
     )
 
-    # Disable payment/stream links and media URLs.
-    attr_re = re.compile(r"\b(href|src|poster)\s*=\s*([\"'])([^\"']+)\2", re.IGNORECASE)
+    attr_re = re.compile(r"\\b(href|src|poster)\\s*=\\s*([\"'])([^\"']+)\\2", re.IGNORECASE)
 
     def replace_attr(match: re.Match[str]) -> str:
         attr, quote, value = match.group(1), match.group(2), match.group(3)
@@ -507,31 +589,182 @@ def count_files(root: Path) -> int:
     return sum(1 for p in root.rglob("*") if p.is_file())
 
 
-def sync_to_repo(cfg: Config, staged_host_dir: Path) -> None:
-    target = cfg.content_path
-    if target.exists():
-        shutil.rmtree(target)
-    shutil.copytree(staged_host_dir, target)
+def git_has_remote_branch(repo_path: Path, remote: str, branch: str) -> bool:
+    p = subprocess.run(
+        ["git", "show-ref", "--verify", f"refs/remotes/{remote}/{branch}"],
+        cwd=str(repo_path),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    return p.returncode == 0
 
 
-def stage_and_commit(cfg: Config) -> bool:
-    run(["git", "add", "-A", cfg.content_subdir], cwd=cfg.repo_path)
-    diff = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=cfg.repo_path)
+def prepare_delivery_branch(repo_path: Path, remote: str, branch: str) -> None:
+    run(["git", "fetch", remote, "--prune"], cwd=repo_path)
+    if git_has_remote_branch(repo_path, remote, branch):
+        run(["git", "checkout", "-B", branch, f"{remote}/{branch}"], cwd=repo_path)
+    else:
+        run(["git", "checkout", "--orphan", branch], cwd=repo_path)
+        run(["git", "rm", "-rf", "."], cwd=repo_path, check=False)
+
+
+def write_manifest(staging_root: Path, req: RequestDoc, cfg: Config) -> None:
+    manifest_path = staging_root / sanitize_relpath(req.delivery_manifest_path)
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest = {
+        "requestId": req.request_id,
+        "siteHost": normalize_host(req.site_host),
+        "sourceUrl": req.requested_url,
+        "entryPath": cfg.default_entry_path,
+        "producer": "mirror_and_push.py",
+        "producedAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "protocolVersion": 1,
+    }
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=True, indent=2) + "\n", encoding="utf-8")
+
+
+def sync_tree(src_root: Path, dst_root: Path) -> None:
+    if dst_root.exists():
+        shutil.rmtree(dst_root)
+    shutil.copytree(src_root, dst_root)
+
+
+def replace_repo_working_tree(src_root: Path, repo_root: Path) -> None:
+    for child in repo_root.iterdir():
+        if child.name == ".git":
+            continue
+        if child.is_dir():
+            shutil.rmtree(child)
+        else:
+            child.unlink()
+    for src_child in src_root.iterdir():
+        dst = repo_root / src_child.name
+        if src_child.is_dir():
+            shutil.copytree(src_child, dst)
+        else:
+            shutil.copy2(src_child, dst)
+
+
+def stage_commit_and_push(repo_path: Path, remote: str, branch: str, signing_key: str, pass_env: str, message: str) -> str:
+    run(["git", "add", "-A"], cwd=repo_path)
+    diff = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=str(repo_path))
     if diff.returncode == 0:
-        print("no changes — skipping commit", flush=True)
+        head = run_capture(["git", "rev-parse", "HEAD"], cwd=repo_path)
+        return head
+
+    env = os.environ.copy()
+    passphrase = os.environ.get(pass_env)
+    if passphrase:
+        env[pass_env] = passphrase
+    run(["git", "commit", "-S", f"--gpg-sign={signing_key}", "-m", message], cwd=repo_path, env=env)
+    run(["git", "push", remote, f"HEAD:{branch}"], cwd=repo_path)
+    return run_capture(["git", "rev-parse", "HEAD"], cwd=repo_path)
+
+
+def process_single_request(cfg: Config, req: RequestDoc) -> dict:
+    status = {
+        "requestId": req.request_id,
+        "state": "pending",
+        "reason": "waiting",
+        "updatedAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "userRepoUrl": req.user_repo_url,
+        "siteHost": normalize_host(req.site_host),
+        "deliveryBranch": req.delivery_branch,
+        "commitSha": None,
+        "ownershipVerified": False,
+    }
+
+    if not is_host_allowed(req.site_host, cfg):
+        status["state"] = "rejected"
+        status["reason"] = f"host not in whitelist: {normalize_host(req.site_host)}"
+        return status
+
+    user_repo_path = user_repo_checkout_dir(cfg, req.user_repo_url)
+    ensure_repo_checkout(req.user_repo_url, user_repo_path, req.delivery_branch)
+
+    proof = git_show_remote_file(
+        repo_path=user_repo_path,
+        remote="origin",
+        branch=req.ownership_branch,
+        relpath=req.ownership_challenge_path,
+    )
+    if proof is None:
+        status["state"] = "pending"
+        status["reason"] = "ownership proof file not found"
+        return status
+
+    if proof.strip() != req.ownership_nonce:
+        status["state"] = "pending"
+        status["reason"] = "ownership nonce mismatch"
+        return status
+
+    status["ownershipVerified"] = True
+
+    with tempfile.TemporaryDirectory(prefix=f"mirror_req_{req.request_id}_") as td:
+        stage = Path(td)
+        host_dir = scrape_site(cfg, req.requested_url, stage)
+        sanitize_content(host_dir, cfg)
+        files = count_files(host_dir)
+        if files < cfg.min_files:
+            status["state"] = "error"
+            status["reason"] = f"scrape sanity check failed: only {files} files"
+            return status
+        if files > cfg.max_files:
+            status["state"] = "error"
+            status["reason"] = f"scrape sanity check failed: {files} files"
+            return status
+
+        prepare_delivery_branch(user_repo_path, "origin", req.delivery_branch)
+
+        if cfg.delivery_subdir.strip():
+            delivery_root = user_repo_path / cfg.delivery_subdir.strip()
+            sync_tree(host_dir, delivery_root)
+            write_manifest(delivery_root, req, cfg)
+        else:
+            replace_repo_working_tree(host_dir, user_repo_path)
+            write_manifest(user_repo_path, req, cfg)
+
+        commit_sha = stage_commit_and_push(
+            repo_path=user_repo_path,
+            remote="origin",
+            branch=req.delivery_branch,
+            signing_key=cfg.signing_key,
+            pass_env=cfg.gpg_passphrase_env,
+            message=f"deliver: {req.request_id} {datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}",
+        )
+
+    status["state"] = "approved"
+    status["reason"] = "delivered"
+    status["commitSha"] = commit_sha
+    return status
+
+
+def status_file_path(cfg: Config, request_id: str) -> Path:
+    safe_id = re.sub(r"[^a-zA-Z0-9._:-]", "_", request_id)
+    return cfg.registry_repo_path / cfg.status_subdir / f"{safe_id}.json"
+
+
+def write_status(cfg: Config, status: dict) -> None:
+    p = status_file_path(cfg, str(status.get("requestId", "unknown")))
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(status, ensure_ascii=True, indent=2) + "\n", encoding="utf-8")
+
+
+def stage_and_push_registry_status(cfg: Config) -> bool:
+    run(["git", "add", "-A", cfg.status_subdir], cwd=cfg.registry_repo_path)
+    diff = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=str(cfg.registry_repo_path))
+    if diff.returncode == 0:
+        print("no registry status changes", flush=True)
         return False
 
-    msg = "mirror update " + datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     env = os.environ.copy()
     passphrase = os.environ.get(cfg.gpg_passphrase_env)
     if passphrase:
         env[cfg.gpg_passphrase_env] = passphrase
-    run(
-        ["git", "commit", "-S", f"--gpg-sign={cfg.signing_key}", "-m", msg],
-        cwd=cfg.repo_path,
-        env=env,
-    )
-    run(["git", "push", cfg.git_remote, f"HEAD:{cfg.git_branch}"], cwd=cfg.repo_path)
+
+    msg = "registry status update " + datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    run(["git", "commit", "-S", f"--gpg-sign={cfg.signing_key}", "-m", msg], cwd=cfg.registry_repo_path, env=env)
+    run(["git", "push", cfg.registry_remote, f"HEAD:{cfg.registry_branch}"], cwd=cfg.registry_repo_path)
     return True
 
 
@@ -546,20 +779,18 @@ def repo_maintenance_due(marker_path: Path, interval_hours: int, now_s: int | No
     return (now - last) >= (interval_hours * 3600)
 
 
-def run_repo_maintenance(cfg: Config) -> None:
-    marker = cfg.repo_path / ".mirror_last_maintenance"
-    if not repo_maintenance_due(marker, cfg.maintenance_interval_hours):
+def run_repo_maintenance(repo_path: Path, interval_hours: int, prune_after_days: int) -> None:
+    marker = repo_path / ".mirror_last_maintenance"
+    if not repo_maintenance_due(marker, interval_hours):
         return
-    prune = f"--prune={cfg.prune_after_days}.days.ago"
-    expire = f"--expire={cfg.prune_after_days}.days.ago"
+    prune = f"--prune={prune_after_days}.days.ago"
+    expire = f"--expire={prune_after_days}.days.ago"
     try:
-        # Keep this lightweight and infrequent: we want bloat prevention,
-        # not an expensive maintenance step every cycle.
-        run(["git", "reflog", "expire", expire, "--all"], cwd=cfg.repo_path)
-        run(["git", "gc", "--auto", prune], cwd=cfg.repo_path)
+        run(["git", "reflog", "expire", expire, "--all"], cwd=repo_path)
+        run(["git", "gc", "--auto", prune], cwd=repo_path)
         marker.write_text(str(int(time.time())), encoding="utf-8")
     except Exception as exc:  # noqa: BLE001
-        print(f"[warn] maintenance skipped: {exc}", flush=True)
+        print(f"[warn] maintenance skipped for {repo_path}: {exc}", flush=True)
 
 
 def run_once(cfg: Config) -> int:
@@ -567,20 +798,60 @@ def run_once(cfg: Config) -> int:
     ensure_tools()
     advisory_safety_note()
 
-    with tempfile.TemporaryDirectory(prefix="mirror_stage_") as td:
-        stage = Path(td)
-        host_dir = scrape_site(cfg, stage)
-        sanitize_content(host_dir, cfg)
-        files = count_files(host_dir)
-        if files < cfg.min_files:
-            raise SystemExit(f"scrape sanity check failed: only {files} files (min_files={cfg.min_files})")
-        if files > cfg.max_files:
-            raise SystemExit(f"scrape sanity check failed: {files} files (max_files={cfg.max_files})")
-        sync_to_repo(cfg, host_dir)
+    update_registry_checkout(cfg)
+    files = request_files(cfg)
+    if not files:
+        print("no requests found", flush=True)
+        return 0
 
-    changed = stage_and_commit(cfg)
-    run_repo_maintenance(cfg)
-    print("completed with changes" if changed else "completed without changes", flush=True)
+    processed = 0
+    for req_path in files:
+        if processed >= cfg.max_requests_per_run:
+            break
+
+        try:
+            payload = json.loads(req_path.read_text(encoding="utf-8"))
+            req = parse_request_doc(payload, cfg)
+        except Exception as exc:  # noqa: BLE001
+            # Best-effort request ID fallback from filename.
+            fallback_id = req_path.stem
+            status = {
+                "requestId": fallback_id,
+                "state": "rejected",
+                "reason": f"invalid request document: {exc}",
+                "updatedAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "userRepoUrl": None,
+                "siteHost": None,
+                "deliveryBranch": cfg.default_delivery_branch,
+                "commitSha": None,
+                "ownershipVerified": False,
+            }
+            write_status(cfg, status)
+            processed += 1
+            continue
+
+        existing_status_path = status_file_path(cfg, req.request_id)
+        if existing_status_path.is_file():
+            try:
+                existing = json.loads(existing_status_path.read_text(encoding="utf-8"))
+                if existing.get("state") == "approved" and existing.get("commitSha"):
+                    continue
+            except Exception:
+                pass
+
+        status = process_single_request(cfg, req)
+        write_status(cfg, status)
+        processed += 1
+
+    changed = stage_and_push_registry_status(cfg)
+    run_repo_maintenance(cfg.registry_repo_path, cfg.maintenance_interval_hours, cfg.prune_after_days)
+
+    if cfg.user_repos_root.is_dir():
+        for repo_dir in cfg.user_repos_root.iterdir():
+            if (repo_dir / ".git").is_dir():
+                run_repo_maintenance(repo_dir, cfg.maintenance_interval_hours, cfg.prune_after_days)
+
+    print("completed with status updates" if changed else "completed without status updates", flush=True)
     return 0
 
 
@@ -596,24 +867,85 @@ def acquire_lock(lock_path: Path):
     return fh
 
 
+def run_as_user(user: str, cmd: list[str], cwd: Path | None = None, check: bool = True) -> subprocess.CompletedProcess:
+    if shutil.which("runuser"):
+        wrapped = ["runuser", "-u", user, "--"] + cmd
+        return run(wrapped, cwd=cwd, check=check)
+    if shutil.which("sudo"):
+        wrapped = ["sudo", "-u", user] + cmd
+        return run(wrapped, cwd=cwd, check=check)
+    raise SystemExit("runuser/sudo is required to execute commands as the mirror user")
+
+
+def write_file(path: Path, content: str, mode: int = 0o644) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    os.chmod(path, mode)
+
+
+def ensure_system_user(user: str, group: str) -> None:
+    import pwd
+
+    try:
+        pwd.getpwnam(user)
+    except KeyError:
+        run(["useradd", "-r", "-m", "-s", "/usr/sbin/nologin", user])
+
+    if group != user:
+        run(["groupadd", "-f", group], check=False)
+        run(["usermod", "-a", "-G", group, user], check=False)
+
+
+def install_binary_from_self() -> None:
+    src = Path(__file__).resolve()
+    dest = Path("/usr/local/bin/mirror_and_push.py")
+    shutil.copy2(src, dest)
+    os.chmod(dest, 0o755)
+
+
+def maybe_install_deps() -> None:
+    if not shutil.which("apt-get"):
+        raise SystemExit("--install-deps requested but apt-get was not found")
+    run(["apt-get", "update", "-y"])
+    run([
+        "apt-get",
+        "install",
+        "-y",
+        "--no-install-recommends",
+        "python3",
+        "git",
+        "gpg",
+        "httrack",
+    ])
+
+
+def write_default_secrets_file() -> None:
+    path = Path("/etc/mirror/secrets.env")
+    if path.exists():
+        return
+    content = "# Optional. Set if your key is passphrase-protected.\nGPG_PASSPHRASE=\n"
+    write_file(path, content, mode=0o600)
+
+
+def install_systemd_units(config_path: Path, cfg: Config, user: str, group: str) -> None:
+    service = SERVICE_TEMPLATE.format(
+        user=user,
+        group=group,
+        registry_repo_path=str(cfg.registry_repo_path),
+        user_repos_root=str(cfg.user_repos_root),
+        config_path=str(config_path),
+    )
+    timer = TIMER_TEMPLATE.format(interval_minutes=cfg.interval_minutes)
+    write_file(Path("/etc/systemd/system/mirror.service"), service, mode=0o644)
+    write_file(Path("/etc/systemd/system/mirror.timer"), timer, mode=0o644)
+
+
 def cmd_init(args: argparse.Namespace) -> int:
     path = Path(args.config).expanduser().resolve()
     if path.exists() and not args.force:
         raise SystemExit(f"config exists: {path} (use --force to overwrite)")
-
-    target = input("Target URL [https://iranopasmigirim.com/]: ").strip() or "https://iranopasmigirim.com/"
-    repo = input("Local git repo path [/srv/mirror-repo]: ").strip() or "/srv/mirror-repo"
-    key = input("GPG signing key id [0xABCDEF1234567890]: ").strip() or "0xABCDEF1234567890"
-    branch = input("Git branch [main]: ").strip() or "main"
-
-    content = DEFAULT_CONFIG
-    content = content.replace('target_url = "https://iranopasmigirim.com/"', f'target_url = "{target}"')
-    content = content.replace('repo_path = "/srv/mirror-repo"', f'repo_path = "{repo}"')
-    content = content.replace('signing_key = "0xABCDEF1234567890"', f'signing_key = "{key}"')
-    content = content.replace('git_branch = "main"', f'git_branch = "{branch}"')
-
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
+    path.write_text(DEFAULT_CONFIG, encoding="utf-8")
     print(f"wrote config: {path}")
     return 0
 
@@ -622,8 +954,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     cfg = load_config(Path(args.config))
     validate_config(cfg)
     ensure_tools()
-    run(["git", "rev-parse", "--is-inside-work-tree"], cwd=cfg.repo_path)
-    run(["git", "remote", "get-url", cfg.git_remote], cwd=cfg.repo_path)
+    run(["git", "ls-remote", "--heads", cfg.registry_repo_url, cfg.registry_branch])
     run(["gpg", "--list-secret-keys", cfg.signing_key])
     print("doctor checks completed")
     return 0
@@ -631,7 +962,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 
 def cmd_run_once(args: argparse.Namespace) -> int:
     cfg = load_config(Path(args.config))
-    lock_path = cfg.repo_path / ".mirror_producer.lock"
+    lock_path = cfg.registry_repo_path / ".mirror_producer.lock"
     lock = acquire_lock(lock_path)
     try:
         return run_once(cfg)
@@ -641,7 +972,7 @@ def cmd_run_once(args: argparse.Namespace) -> int:
 
 def cmd_daemon(args: argparse.Namespace) -> int:
     cfg = load_config(Path(args.config))
-    lock_path = cfg.repo_path / ".mirror_producer.lock"
+    lock_path = cfg.registry_repo_path / ".mirror_producer.lock"
     lock = acquire_lock(lock_path)
     try:
         while True:
@@ -663,47 +994,51 @@ def cmd_setup_system(args: argparse.Namespace) -> int:
 
     if args.interactive:
         print("[setup] interactive mode enabled", flush=True)
-        args.repo_url = prompt_validated("Mirror repo URL", args.repo_url, validate_repo_url)
-        args.target_url = prompt_validated("Target URL", args.target_url, validate_target_url)
+        args.registry_repo_url = prompt_validated("Registry repo URL", args.registry_repo_url, validate_repo_url)
+        args.registry_branch = prompt_validated("Registry branch", args.registry_branch, validate_branch_name)
         args.signing_key = prompt_validated("GPG signing key", args.signing_key, validate_signing_key)
-        args.branch = prompt_validated("Git branch", args.branch, validate_branch_name)
-        args.repo_path = prompt_value("Local repo path", args.repo_path)
+        args.registry_repo_path = prompt_value("Local registry repo path", args.registry_repo_path)
+        args.user_repos_root = prompt_value("Local user repos root", args.user_repos_root)
         args.interval = prompt_int("Interval minutes", args.interval, validate_interval_minutes)
     else:
-        if not args.repo_url:
-            die("--repo-url is required in non-interactive mode")
+        if not args.registry_repo_url:
+            die("--registry-repo-url is required in non-interactive mode")
         if not args.signing_key:
             die("--signing-key is required in non-interactive mode")
-        args.repo_url = validate_repo_url(args.repo_url)
-        args.target_url = validate_target_url(args.target_url)
+        args.registry_repo_url = validate_repo_url(args.registry_repo_url)
+        args.registry_branch = validate_branch_name(args.registry_branch)
         args.signing_key = validate_signing_key(args.signing_key)
-        args.branch = validate_branch_name(args.branch)
         args.interval = validate_interval_minutes(args.interval)
-
-    check_repo_remote(args.repo_url, args.branch)
 
     if args.install_deps:
         maybe_install_deps()
 
-    repo_path = Path(args.repo_path).expanduser().resolve()
+    registry_repo_path = Path(args.registry_repo_path).expanduser().resolve()
+    user_repos_root = Path(args.user_repos_root).expanduser().resolve()
     config_path = Path(args.config).expanduser().resolve()
 
     ensure_system_user(args.user, args.group)
-    ensure_repo_checkout(args.repo_url, repo_path, args.user, args.branch)
+    ensure_repo_checkout(args.registry_repo_url, registry_repo_path, args.registry_branch)
+    user_repos_root.mkdir(parents=True, exist_ok=True)
+    run(["chown", "-R", f"{args.user}:{args.group}", str(registry_repo_path)])
+    run(["chown", "-R", f"{args.user}:{args.group}", str(user_repos_root)])
     install_binary_from_self()
 
-    cfg = config_from_values(
-        target_url=args.target_url,
-        repo_path=repo_path,
-        signing_key=args.signing_key,
-        branch=args.branch,
-        interval_minutes=args.interval,
-    )
-    write_file(config_path, cfg, mode=0o640)
+    config_text = DEFAULT_CONFIG
+    config_text = config_text.replace('registry_repo_path = "/srv/mirror-registry"', f'registry_repo_path = "{registry_repo_path}"')
+    config_text = config_text.replace('registry_repo_url = "https://github.com/your-org/mirror-registry"', f'registry_repo_url = "{args.registry_repo_url}"')
+    config_text = config_text.replace('registry_branch = "registrations"', f'registry_branch = "{args.registry_branch}"')
+    config_text = config_text.replace('user_repos_root = "/srv/mirror-users"', f'user_repos_root = "{user_repos_root}"')
+    config_text = config_text.replace('signing_key = "0xABCDEF1234567890"', f'signing_key = "{args.signing_key}"')
+    config_text = config_text.replace('interval_minutes = 15', f'interval_minutes = {args.interval}')
+
+    write_file(config_path, config_text, mode=0o640)
     run(["chown", "root:root", str(config_path)])
 
     write_default_secrets_file()
-    install_systemd_units(config_path, repo_path, args.user, args.group, args.interval)
+
+    cfg = load_config(config_path)
+    install_systemd_units(config_path, cfg, args.user, args.group)
     run(["systemctl", "daemon-reload"])
 
     run_as_user(args.user, ["/usr/local/bin/mirror_and_push.py", "--config", str(config_path), "doctor"], check=False)
@@ -729,19 +1064,19 @@ def build_parser() -> argparse.ArgumentParser:
     doc_p = sub.add_parser("doctor", help="check dependencies and configuration")
     doc_p.set_defaults(func=cmd_doctor)
 
-    run_p = sub.add_parser("run-once", help="run one mirror cycle")
+    run_p = sub.add_parser("run-once", help="run one processing cycle")
     run_p.set_defaults(func=cmd_run_once)
 
     daemon_p = sub.add_parser("daemon", help="run forever with interval_minutes cadence")
     daemon_p.set_defaults(func=cmd_daemon)
 
     setup_p = sub.add_parser("setup-system", help="one-command deterministic system setup (root)")
-    setup_p.add_argument("--repo-url", default="", help="git URL of the mirror repo")
-    setup_p.add_argument("--target-url", default="https://iranopasmigirim.com/", help="site to mirror")
-    setup_p.add_argument("--repo-path", default="/srv/mirror-repo", help="local mirror repo path")
+    setup_p.add_argument("--registry-repo-url", default="", help="git URL of registry repo")
+    setup_p.add_argument("--registry-repo-path", default="/srv/mirror-registry", help="local registry repo path")
+    setup_p.add_argument("--user-repos-root", default="/srv/mirror-users", help="local root for user repo checkouts")
     setup_p.add_argument("--signing-key", default="", help="GPG signing key id")
-    setup_p.add_argument("--branch", default="main", help="git branch to push")
-    setup_p.add_argument("--interval", type=int, default=15, help="minutes between mirror runs")
+    setup_p.add_argument("--registry-branch", default="registrations", help="registry branch to watch/write")
+    setup_p.add_argument("--interval", type=int, default=15, help="minutes between processor runs")
     setup_p.add_argument("--user", default="mirror", help="system user for mirror service")
     setup_p.add_argument("--group", default="mirror", help="system group for mirror service")
     setup_p.add_argument("--install-deps", action="store_true", help="install apt dependencies")

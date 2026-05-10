@@ -9,12 +9,6 @@ describe('config: invariants', () => {
     assert.match(cfg.SERVE_PATH, /^\/.*\/$/);
   });
 
-  it('TARGET_HOST has no scheme and no path', () => {
-    assert.ok(!cfg.TARGET_HOST.includes('://'));
-    assert.ok(!cfg.TARGET_HOST.includes('/'));
-    assert.match(cfg.TARGET_HOST, /^[a-z0-9.-]+$/i);
-  });
-
   it('poll cadence is sensible', () => {
     assert.ok(cfg.POLL_INTERVAL_MINUTES >= 1, 'too aggressive');
     assert.ok(cfg.POLL_INTERVAL_MINUTES <= 60, 'too lazy');
@@ -41,17 +35,22 @@ describe('config: invariants', () => {
     }
   });
 
-  it('REPO_CANDIDATES is non-empty and well-formed', () => {
-    assert.ok(Array.isArray(cfg.REPO_CANDIDATES));
-    assert.ok(cfg.REPO_CANDIDATES.length >= 1);
-    for (const c of cfg.REPO_CANDIDATES) {
-      assert.equal(typeof c.owner, 'string');
-      assert.equal(typeof c.repo, 'string');
-      assert.equal(typeof c.branch, 'string');
-      assert.ok(c.owner.length > 0);
-      assert.ok(c.repo.length > 0);
-      assert.ok(c.branch.length > 0);
-    }
+  it('protocol branches are non-empty strings', () => {
+    assert.equal(typeof cfg.REQUESTS_BRANCH, 'string');
+    assert.equal(typeof cfg.CONTENT_BRANCH, 'string');
+    assert.equal(typeof cfg.REGISTRY_BRANCH, 'string');
+    assert.ok(cfg.REQUESTS_BRANCH.length > 0);
+    assert.ok(cfg.CONTENT_BRANCH.length > 0);
+    assert.ok(cfg.REGISTRY_BRANCH.length > 0);
+  });
+
+  it('registry and manifest constants are configured', () => {
+    assert.equal(typeof cfg.REGISTRY_REPO_URL, 'string');
+    assert.equal(typeof cfg.MIRROR_MANIFEST_PATH, 'string');
+    assert.equal(typeof cfg.DEFAULT_ENTRY_PATH, 'string');
+    assert.match(cfg.REGISTRY_REPO_URL, /^https:\/\/github\.com\/.+\/.+/i);
+    assert.ok(cfg.MIRROR_MANIFEST_PATH.includes('/'));
+    assert.ok(!cfg.DEFAULT_ENTRY_PATH.startsWith('/'));
   });
 
   it('production gate: ALLOW_UNPINNED_SIGNATURES is a boolean', () => {

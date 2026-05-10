@@ -6,7 +6,7 @@
 //   files:  key=path (string), value={content: ArrayBuffer, mimeType, sha}
 //   meta:   key=string, value=any   (last tree SHA, last sync time, etc.)
 
-const DB_NAME = 'iranopasmigirim-mirror';
+const DB_NAME = 'shahin-mirror';
 const DB_VERSION = 1;
 
 let dbPromise = null;

@@ -24,14 +24,13 @@ describe('manifest: chrome MV3', () => {
   it('requests exactly the permissions the SW uses', () => {
     // Anything beyond this list is a Chrome-store red flag. Don't ask for
     // 'tabs' or 'scripting' — we don't need them.
-    const expected = ['alarms', 'declarativeNetRequest', 'storage'];
+    const expected = ['alarms', 'storage'];
     for (const p of expected) assert.ok(chrome.permissions.includes(p), `missing permission: ${p}`);
     for (const p of chrome.permissions) assert.ok(expected.includes(p), `unexpected permission: ${p}`);
   });
 
-  it('host permissions are scoped to GitHub + the target', () => {
-    // No wildcards beyond what's needed. raw + api are the data plane,
-    // the target host is needed for DNR's redirect rule to match.
+  it('host permissions are scoped to GitHub only', () => {
+    // No wildcards beyond what's needed. raw + api are the data plane.
     const required = [
       'https://api.github.com/*',
       'https://raw.githubusercontent.com/*',
@@ -60,13 +59,6 @@ describe('manifest: chrome MV3', () => {
     assert.match(csp, /connect-src[^;]*raw\.githubusercontent\.com/);
   });
 
-  it('exposes /site/ as web-accessible', () => {
-    const w = chrome.web_accessible_resources;
-    assert.ok(Array.isArray(w) && w.length > 0);
-    const flat = w.flatMap((e) => e.resources || []);
-    assert.ok(flat.includes('site/*'));
-    assert.ok(!flat.includes('popup/*'));
-  });
 });
 
 describe('manifest: firefox MV2', () => {

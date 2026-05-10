@@ -25,6 +25,7 @@ import {
 import {
   POLL_INTERVAL_MINUTES, MAX_BACKOFF_MINUTES,
   MAX_FILE_SIZE_BYTES, MAX_FILES_PER_SYNC, MAINTENANCE_INTERVAL_HOURS,
+  MIRROR_MANIFEST_PATH, DEFAULT_ENTRY_PATH, WHITELIST,
 } from '../config.js';
 
 // Single in-flight sync at a time. The alarm can fire while a previous
@@ -116,6 +117,14 @@ export async function syncOnce({ force = false } = {}) {
         throw new Error(`tree has ${tree.length} files, exceeds MAX_FILES_PER_SYNC`);
       }
 
+      const preloadedContent = new Map();
+      const manifestMeta = await loadAndValidateSnapshotManifest({
+        tree,
+        userRepoUrl,
+        commitSha: commit.sha,
+        preloadedContent,
+      });
+
       const incoming = new Map(tree.map((b) => [b.path, b]));
       const existing = new Set(await listPaths());
 
@@ -143,7 +152,9 @@ export async function syncOnce({ force = false } = {}) {
       for (let i = 0; i < writes.length; i++) {
         const blob = writes[i];
         try {
-          const buf = await fetchRaw(userRepoUrl, blob.path, commit.sha);
+          const buf = preloadedContent.has(blob.path)
+            ? preloadedContent.get(blob.path)
+            : await fetchRaw(userRepoUrl, blob.path, commit.sha);
           if (buf.byteLength > MAX_FILE_SIZE_BYTES) {
             throw new Error(`downloaded size exceeds MAX_FILE_SIZE_BYTES for ${blob.path}`);
           }
@@ -182,6 +193,7 @@ export async function syncOnce({ force = false } = {}) {
 
       const now = Date.now();
       const hadNewWrites = writes.length > 0;
+      await persistActiveSnapshot(manifestMeta, commit.sha);
       await putMetaBatch([
         ['treeSha', commit.treeSha],
         ['lastSyncAt', now],
@@ -249,12 +261,17 @@ export async function fullStatus() {
   const s = await stats();
   const last = (await getMeta('lastSyncAt')) || 0;
   const storageFull = Boolean(await getMeta('storageFull'));
+  const activeSnapshot = (await getMeta('activeSnapshot')) || {};
   return {
     ...status,
     lastSyncAt: status.lastSyncAt || last,
     fileCount: s.count,
     bytes: s.bytes,
     storageFull,
+    siteHost: activeSnapshot.siteHost || null,
+    entryPath: activeSnapshot.entryPath || DEFAULT_ENTRY_PATH,
+    requestId: activeSnapshot.requestId || null,
+    commitSha: activeSnapshot.commitSha || null,
   };
 }
 
@@ -272,4 +289,95 @@ export async function gitBlobShaHex(arrayBuffer) {
   joined.set(body, prefix.length);
   const digest = await crypto.subtle.digest('SHA-1', joined);
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function persistActiveSnapshot(manifestMeta, commitSha) {
+  const siteHost = manifestMeta && manifestMeta.siteHost ? manifestMeta.siteHost : null;
+  const entryPath = manifestMeta && manifestMeta.entryPath ? manifestMeta.entryPath : DEFAULT_ENTRY_PATH;
+  const requestId = manifestMeta && manifestMeta.requestId ? manifestMeta.requestId : null;
+
+  await putMeta('activeSnapshot', {
+    siteHost,
+    entryPath,
+    requestId,
+    commitSha,
+    updatedAt: Date.now(),
+  });
+}
+
+function sanitizeEntryPath(value) {
+  const trimmed = String(value || '').trim().replace(/^\/+/, '');
+  if (!trimmed) return DEFAULT_ENTRY_PATH;
+  if (trimmed.includes('..')) return DEFAULT_ENTRY_PATH;
+  return trimmed;
+}
+
+async function loadAndValidateSnapshotManifest({ tree, userRepoUrl, commitSha, preloadedContent }) {
+  const manifestBlob = tree.find((b) => b.path === MIRROR_MANIFEST_PATH);
+  if (!manifestBlob) {
+    throw new Error(`required manifest missing from snapshot: ${MIRROR_MANIFEST_PATH}`);
+  }
+
+  let manifestBuffer = null;
+  const existing = await getFile(MIRROR_MANIFEST_PATH);
+  if (existing && existing.sha === manifestBlob.sha && existing.content) {
+    manifestBuffer = existing.content;
+  }
+  if (!manifestBuffer) {
+    manifestBuffer = await fetchRaw(userRepoUrl, MIRROR_MANIFEST_PATH, commitSha);
+  }
+  preloadedContent.set(MIRROR_MANIFEST_PATH, manifestBuffer);
+
+  let manifest;
+  try {
+    const text = new TextDecoder('utf-8').decode(manifestBuffer);
+    manifest = JSON.parse(text);
+  } catch (_) {
+    throw new Error('snapshot manifest is not valid JSON');
+  }
+
+  const siteHost = manifest && typeof manifest.siteHost === 'string'
+    ? manifest.siteHost.trim().toLowerCase()
+    : '';
+  if (!siteHost || !WHITELIST[siteHost]) {
+    throw new Error(`snapshot manifest host is not whitelisted: ${siteHost || 'unknown-host'}`);
+  }
+
+  const entryPath = sanitizeEntryPath(
+    manifest && typeof manifest.entryPath === 'string' ? manifest.entryPath : DEFAULT_ENTRY_PATH
+  );
+  if (!isPathAllowedForHost(entryPath, siteHost)) {
+    throw new Error(`snapshot entryPath is outside whitelist paths: ${entryPath}`);
+  }
+
+  const requestId = manifest && typeof manifest.requestId === 'string'
+    ? manifest.requestId.trim()
+    : null;
+
+  return {
+    siteHost,
+    entryPath,
+    requestId,
+  };
+}
+
+function isPathAllowedForHost(path, siteHost) {
+  const hostPolicy = WHITELIST[String(siteHost || '').trim().toLowerCase()];
+  if (!hostPolicy || !Array.isArray(hostPolicy.paths) || hostPolicy.paths.length === 0) {
+    return false;
+  }
+  const normalizedPath = `/${String(path || '').replace(/^\/+/, '')}`;
+  for (const rawPattern of hostPolicy.paths) {
+    const pattern = String(rawPattern || '').trim();
+    if (!pattern) continue;
+    if (pattern === '/') return true;
+    if (pattern.endsWith('/*')) {
+      const base = pattern.slice(0, -1);
+      if (normalizedPath.startsWith(base)) return true;
+      continue;
+    }
+    if (normalizedPath === pattern) return true;
+    if (normalizedPath.startsWith(`${pattern}/`)) return true;
+  }
+  return false;
 }

@@ -173,3 +173,102 @@ footer { font-size: 11px; color: var(--dim); }
   font-size: 12px;
   color: var(--ok);
 }
+
+.registration-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.registration-card h2 {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.field-label {
+  font-size: 11px;
+  color: var(--dim);
+}
+
+.actions-inline {
+  display: flex;
+  gap: 8px;
+}
+
+.actions-inline .primary,
+.actions-inline .secondary {
+  flex: 1;
+}
+
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.status-chip {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.chip-label {
+  font-size: 10px;
+  color: var(--dim);
+}
+
+.chip-value {
+  font-size: 11px;
+  color: var(--fg);
+  word-break: break-word;
+}
+
+#instructions-panel {
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+
+#instructions-panel summary {
+  cursor: pointer;
+  color: var(--dim);
+  font-size: 12px;
+  user-select: none;
+}
+
+.instruction-block {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.instruction-title {
+  font-size: 11px;
+  color: var(--fg);
+}
+
+.instruction-meta {
+  font-size: 11px;
+  color: var(--dim);
+  word-break: break-all;
+}
+
+.instruction-content {
+  width: 100%;
+  min-height: 86px;
+  resize: vertical;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  padding: 8px;
+  font: 11px 'Courier New', monospace;
+}

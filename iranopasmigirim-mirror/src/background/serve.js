@@ -1,10 +1,9 @@
 // Serve cached pages out of IndexedDB into the extension origin.
 //
 // The fetch event in the SW only fires for requests from same-origin pages
-// (i.e. chrome-extension://<id>/...). Top-level navigation to the real
-// domain is redirected here by declarativeNetRequest, configured in the
-// manifest. From this point on every request — page, css, js, font, image
-// — flows through this module.
+// (i.e. chrome-extension://<id>/...). Popup actions and SW auto-open navigate
+// users into /site/, and from this point every request — page, css, js, font,
+// image — flows through this module.
 //
 // URL shape:
 //   chrome-extension://<id>/site/<path>
@@ -14,7 +13,7 @@
 
 import { getFile } from './db.js';
 import { mimeFor, isHtml } from './mime.js';
-import { TARGET_HOST, SERVE_PATH } from '../config.js';
+import { MIRROR_MANIFEST_PATH, SERVE_PATH, WHITELIST } from '../config.js';
 
 // Headers we set on every response. CSP is the load-bearing one: the cached
 // site can run its own scripts (the whole point), but it must not be able
@@ -73,7 +72,7 @@ export function urlToPath(urlStr) {
 // We also strip a few site-specific patterns that would either leak (real
 // analytics) or break (third-party widgets that need network the user
 // can't reach). String replace is fine here: these patterns are stable.
-export function rewriteHtml(html) {
+export function rewriteHtml(html, { siteHost = '' } = {}) {
   // <base> goes immediately after <head ...> so any <base> the original
   // page declared sits *after* ours and wins — our injection then becomes
   // the fallback for pages that don't declare their own. We don't try to
@@ -86,25 +85,52 @@ export function rewriteHtml(html) {
     out = html.replace(/<html([^>]*)>/i, (m) => `${m}<head>${baseTag}</head>`);
   }
   // Targeted absolute-URL rewrites. We handle:
-  //   https://TARGET_HOST/...   -> /site/...
-  //   http://TARGET_HOST/...    -> /site/...
-  //   //TARGET_HOST/...         -> /site/...     (protocol-relative)
+  //   https://<site-host>/...   -> /site/...
+  //   http://<site-host>/...    -> /site/...
+  //   //<site-host>/...         -> /site/...     (protocol-relative)
   // Anchored on the host string (with optional port) so we don't false-
   // positive on a substring inside text content.
-  const hostEsc = TARGET_HOST.replace(/\./g, '\\.');
-  const re = new RegExp(`(https?:)?//(?:www\\.)?${hostEsc}(:\\d+)?/`, 'gi');
-  out = out.replace(re, SERVE_PATH);
+  const normalizedHost = String(siteHost || '').trim().toLowerCase();
+  if (normalizedHost) {
+    const hostEsc = normalizedHost.replace(/\./g, '\\.');
+    const re = new RegExp(`(https?:)?//(?:www\\.)?${hostEsc}(:\\d+)?/`, 'gi');
+    out = out.replace(re, SERVE_PATH);
+  }
   return out;
+}
+
+export function isPathAllowedForHost(path, siteHost, whitelist = WHITELIST) {
+  const normalizedHost = String(siteHost || '').trim().toLowerCase();
+  if (!normalizedHost) return false;
+  const hostPolicy = whitelist[normalizedHost];
+  if (!hostPolicy || !Array.isArray(hostPolicy.paths) || hostPolicy.paths.length === 0) {
+    return false;
+  }
+
+  const normalizedPath = `/${String(path || '').replace(/^\/+/, '')}`;
+  for (const rawPattern of hostPolicy.paths) {
+    const pattern = String(rawPattern || '').trim();
+    if (!pattern) continue;
+    if (pattern === '/') return true;
+    if (pattern.endsWith('/*')) {
+      const base = pattern.slice(0, -1); // keep trailing '/'
+      if (normalizedPath.startsWith(base)) return true;
+      continue;
+    }
+    if (normalizedPath === pattern) return true;
+    if (normalizedPath.startsWith(`${pattern}/`)) return true;
+  }
+  return false;
 }
 
 // Build a Response. Static assets are returned as-is; HTML gets the
 // <base href> injection. We never set a Content-Length: the body is
 // already a Blob/ArrayBuffer and the browser fills it in.
-async function buildResponse(path, record) {
+async function buildResponse(path, record, context = {}) {
   const [mime] = mimeFor(path);
   if (isHtml(path) && record.content) {
     const html = new TextDecoder('utf-8').decode(record.content);
-    const rewritten = rewriteHtml(html);
+    const rewritten = rewriteHtml(html, context);
     return new Response(rewritten, { headers: baseHeaders(mime) });
   }
   return new Response(record.content, { headers: baseHeaders(mime) });
@@ -128,6 +154,24 @@ function notFoundResponse(path) {
 This is an offline copy — only pages captured by the most recent sync are available.</p>`;
   return new Response(html, {
     status: 404,
+    headers: baseHeaders('text/html; charset=utf-8'),
+  });
+}
+
+function forbiddenResponse(path, siteHost) {
+  const html = `<!doctype html>
+<meta charset="utf-8">
+<title>Blocked by mirror policy</title>
+<style>
+  body{background:#0a0a0a;color:#eee;font:18px system-ui;margin:0;
+       display:grid;place-items:center;height:100vh;text-align:center;padding:24px}
+  h1{margin:0 0 12px;font-size:28px}
+  code{background:#1c1c1c;padding:2px 6px;border-radius:4px}
+</style>
+<h1>Blocked by mirror policy</h1>
+<p><code>${escapeHtml(path)}</code> is outside the allowed paths for <code>${escapeHtml(siteHost || 'unknown-host')}</code>.</p>`;
+  return new Response(html, {
+    status: 403,
     headers: baseHeaders('text/html; charset=utf-8'),
   });
 }
@@ -158,5 +202,22 @@ export async function serve(urlStr) {
     }
   }
   if (!record) return notFoundResponse(path);
-  return buildResponse(path, record);
+
+  let siteHost = '';
+  try {
+    const manifest = await getFile(MIRROR_MANIFEST_PATH);
+    if (manifest && manifest.content) {
+      const text = new TextDecoder('utf-8').decode(manifest.content);
+      const parsed = JSON.parse(text);
+      if (parsed && typeof parsed.siteHost === 'string') {
+        siteHost = parsed.siteHost.trim().toLowerCase();
+      }
+    }
+  } catch (_) {}
+
+  if (siteHost && !isPathAllowedForHost(path, siteHost)) {
+    return forbiddenResponse(path, siteHost);
+  }
+
+  return buildResponse(path, record, { siteHost });
 }

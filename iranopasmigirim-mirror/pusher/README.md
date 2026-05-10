@@ -1,12 +1,14 @@
 # Producer App (mirror_and_push.py)
 
-This is the producer side of the mirror.
+This is the producer side of the mirror (Phase 3 request-driven model).
 
 It handles:
-- scrape
-- sanitize (fail-closed for forms/payment/stream links)
-- signed commit
-- push
+- registry request intake (`requests/*.json`)
+- ownership proof verification in user repos (`requests` branch challenge file)
+- whitelist enforcement by host
+- scrape + sanitize (fail-closed for forms/payment/stream links)
+- signed delivery commits to each user repo (`content` branch)
+- signed status updates to registry (`status/*.json`)
 - periodic automatic runs
 
 ## One-command Setup (recommended)
@@ -20,7 +22,8 @@ Run as root on your producer server:
 This command does deterministic, idempotent provisioning:
 - installs deps (if `--install-deps`)
 - creates `mirror` system user
-- clones/updates repo under `/srv/mirror-repo`
+- clones/updates registry repo under `/srv/mirror-registry`
+- prepares user repos root under `/srv/mirror-users`
 - installs producer binary to `/usr/local/bin/mirror_and_push.py`
 - writes `/etc/mirror/mirror.toml`
 - installs systemd unit/timer
@@ -38,10 +41,9 @@ For automation/CI:
 ```bash
 /usr/bin/env python3 mirror_and_push.py setup-system \
 	--non-interactive \
-	--repo-url <YOUR_MIRROR_REPO_URL> \
+	--registry-repo-url <YOUR_REGISTRY_REPO_URL> \
 	--signing-key 0xYOUR_LONG_KEY_ID \
-	--target-url https://iranopasmigirim.com/ \
-	--branch main
+	--registry-branch registrations
 ```
 
 ## Runtime Commands
@@ -55,10 +57,14 @@ For automation/CI:
 Start from `pusher/mirror.toml.example`.
 
 Key options:
-- `target_url`: website to mirror
-- `repo_path`: local git checkout
+- `registry_repo_url`: fixed producer registry repository
+- `registry_repo_path`: local registry checkout
+- `user_repos_root`: local root for user repository checkouts
+- `delivery_subdir`: set to empty string to deliver at repo root (recommended for extension compatibility)
+- `whitelist_hosts`: allowed host list
 - `signing_key`: GPG key id used for signed commits
 - `interval_minutes`: daemon cadence
+- `max_requests_per_run`: cap per cycle
 - `block_payment_domains`: blocked payment links rewritten to a blocked page
 - `block_stream_extensions`: blocked stream/media URL patterns
 

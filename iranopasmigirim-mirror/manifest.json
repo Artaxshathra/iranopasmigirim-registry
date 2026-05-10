@@ -17,25 +17,12 @@
 
   "permissions": [
     "alarms",
-    "declarativeNetRequest",
     "storage"
   ],
 
   "host_permissions": [
     "https://api.github.com/*",
-    "https://raw.githubusercontent.com/*",
-    "*://iranopasmigirim.com/*",
-    "*://www.iranopasmigirim.com/*"
-  ],
-
-  "web_accessible_resources": [
-    {
-      "resources": ["site/*"],
-      "matches": [
-        "*://iranopasmigirim.com/*",
-        "*://www.iranopasmigirim.com/*"
-      ]
-    }
+    "https://raw.githubusercontent.com/*"
   ],
 
   "content_security_policy": {

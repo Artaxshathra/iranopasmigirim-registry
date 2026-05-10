@@ -1,19 +1,33 @@
 # Copy to /etc/mirror/mirror.toml and edit.
 
-target_url = "https://iranopasmigirim.com/"
-repo_path = "/srv/mirror-repo"
-content_subdir = "content"
-git_remote = "origin"
-git_branch = "main"
+registry_repo_path = "/srv/mirror-registry"
+registry_repo_url = "https://github.com/your-org/mirror-registry"
+registry_remote = "origin"
+registry_branch = "registrations"
+requests_subdir = "requests"
+status_subdir = "status"
+
+user_repos_root = "/srv/mirror-users"
+delivery_subdir = ""
+default_delivery_branch = "content"
+default_entry_path = "index.html"
+
 interval_minutes = 15
+max_requests_per_run = 10
+
 signing_key = "0xABCDEF1234567890"
 gpg_passphrase_env = "GPG_PASSPHRASE"
-user_agent = "Mozilla/5.0 (compatible; offline-mirror-bot/2.0)"
+user_agent = "Mozilla/5.0 (compatible; offline-mirror-bot/3.0)"
 exclude_patterns = ["-*.zip", "-*.exe", "-*.dmg", "-*.pkg"]
 min_files = 20
 max_files = 5000
 maintenance_interval_hours = 24
 prune_after_days = 30
+
+whitelist_hosts = [
+  "bbc.com",
+]
+
 block_stream_extensions = [".m3u8", ".mpd", ".ism/manifest", ".f4m", ".ts"]
 block_payment_domains = [
   "zarinpal.com",

@@ -1,9 +1,9 @@
 {
-  "name": "iranopasmigirim-mirror",
+  "name": "shahin-mirror",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Browser extension that mirrors a censored website locally via a signed GitHub repository.",
+  "description": "GitHub-only request-driven offline mirror extension and producer pipeline.",
   "scripts": {
     "build": "node scripts/release-gate.js && node build.js both",
     "build:chrome": "node scripts/release-gate.js && node build.js chrome",

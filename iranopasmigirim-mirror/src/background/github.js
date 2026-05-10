@@ -123,6 +123,32 @@ export async function fetchRaw(userRepoUrl, path, commitSha) {
   }
 }
 
+// Fetch plain text from a branch path via raw CDN.
+export async function fetchTextFromBranch(repoUrl, path, branch) {
+  const { owner, repo } = parseGitHubUrl(repoUrl);
+  const encodedPath = encodePath(path);
+  const ref = encodePath(String(branch || '').trim());
+  const url = `${RAW}/${owner}/${repo}/${ref}/${encodedPath}`;
+  const res = await fetch(url, { cache: 'no-store' });
+  if (!res.ok) {
+    const err = new Error(`raw ${path} -> ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+  return res.text();
+}
+
+// Fetch JSON from a branch path. Returns null on 404 to simplify polling.
+export async function fetchJsonFromBranch(repoUrl, path, branch) {
+  try {
+    const text = await fetchTextFromBranch(repoUrl, path, branch);
+    return JSON.parse(text);
+  } catch (e) {
+    if (e && e.status === 404) return null;
+    throw e;
+  }
+}
+
 // Encode each path segment but preserve slashes. encodeURIComponent escapes
 // '/' which would break GitHub's URL routing.
 function encodePath(path) {

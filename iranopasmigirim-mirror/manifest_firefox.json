@@ -7,7 +7,7 @@
 
   "browser_specific_settings": {
     "gecko": {
-      "id": "mirror@iranopasmigirim",
+      "id": "mirror@shahin-offline",
       "strict_min_version": "115.0"
     }
   },
@@ -25,15 +25,9 @@
   "permissions": [
     "alarms",
     "storage",
-    "webRequest",
-    "webRequestBlocking",
     "https://api.github.com/*",
-    "https://raw.githubusercontent.com/*",
-    "*://iranopasmigirim.com/*",
-    "*://www.iranopasmigirim.com/*"
+    "https://raw.githubusercontent.com/*"
   ],
-
-  "web_accessible_resources": ["site/*"],
 
   "content_security_policy": "default-src 'self'; connect-src 'self' https://api.github.com https://raw.githubusercontent.com; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; object-src 'none'; base-uri 'self'",
 

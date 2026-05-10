@@ -55,6 +55,59 @@
     <p class="error" id="error" hidden></p>
   </section>
 
+  <section class="registration-card" id="registration-section" hidden>
+    <h2>Registration</h2>
+    <p class="help-text">Request a whitelisted website and prepare ownership proof commits.</p>
+
+    <label for="requested-url-input" class="field-label">Requested website URL</label>
+    <input
+      type="text"
+      id="requested-url-input"
+      class="repo-url-input"
+      placeholder="https://example.com/news"
+      spellcheck="false"
+    />
+
+    <div class="actions-inline">
+      <button id="create-request-btn" class="primary">Create request package</button>
+      <button id="refresh-registration-btn" class="secondary">Refresh state</button>
+    </div>
+
+    <div class="status-grid" id="registration-status-grid">
+      <div class="status-chip">
+        <span class="chip-label">Registry</span>
+        <span class="chip-value" id="registry-state">not started</span>
+      </div>
+      <div class="status-chip">
+        <span class="chip-label">Ownership</span>
+        <span class="chip-value" id="ownership-state">not verified</span>
+      </div>
+      <div class="status-chip">
+        <span class="chip-label">Delivery</span>
+        <span class="chip-value" id="delivery-state">not ready</span>
+      </div>
+    </div>
+
+    <p class="success" id="registration-message" hidden></p>
+    <p class="error" id="registration-error" hidden></p>
+
+    <details id="instructions-panel">
+      <summary>Commit instructions</summary>
+
+      <div class="instruction-block">
+        <p class="instruction-title">Step 1: commit request to registry repo</p>
+        <p class="instruction-meta" id="step1-meta">-</p>
+        <textarea id="step1-content" class="instruction-content" readonly></textarea>
+      </div>
+
+      <div class="instruction-block">
+        <p class="instruction-title">Step 2: commit ownership challenge in your repo</p>
+        <p class="instruction-meta" id="step2-meta">-</p>
+        <textarea id="step2-content" class="instruction-content" readonly></textarea>
+      </div>
+    </details>
+  </section>
+
   <section class="actions" id="actions-section">
     <button id="sync-now" class="primary">Sync now</button>
     <a id="open-site" class="secondary" href="#" target="_blank" rel="noopener">Open mirror</a>
