@@ -1,9 +1,9 @@
 {
   "manifest_version": 2,
-  "name": "Mirror — iranopasmigirim",
+  "name": "Mirror",
   "short_name": "Mirror",
-  "description": "Read iranopasmigirim.com offline. Synced every few minutes from a public, signed GitHub repository.",
-  "version": "0.1.0",
+  "description": "Generic offline mirror. Point to any private GitHub repo with signed commits. Extension caches and serves content offline with auto-popup.",
+  "version": "0.2.0",
 
   "browser_specific_settings": {
     "gecko": {
@@ -24,6 +24,7 @@
 
   "permissions": [
     "alarms",
+    "storage",
     "webRequest",
     "webRequestBlocking",
     "https://api.github.com/*",

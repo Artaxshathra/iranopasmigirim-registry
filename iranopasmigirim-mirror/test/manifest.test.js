@@ -24,7 +24,7 @@ describe('manifest: chrome MV3', () => {
   it('requests exactly the permissions the SW uses', () => {
     // Anything beyond this list is a Chrome-store red flag. Don't ask for
     // 'tabs' or 'scripting' — we don't need them.
-    const expected = ['alarms', 'declarativeNetRequest'];
+    const expected = ['alarms', 'declarativeNetRequest', 'storage'];
     for (const p of expected) assert.ok(chrome.permissions.includes(p), `missing permission: ${p}`);
     for (const p of chrome.permissions) assert.ok(expected.includes(p), `unexpected permission: ${p}`);
   });

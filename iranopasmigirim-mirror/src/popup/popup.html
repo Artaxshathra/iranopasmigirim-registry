@@ -2,16 +2,34 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Mirror status</title>
+  <title>Mirror</title>
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
   <header>
     <h1>Mirror</h1>
-    <p class="subtitle" id="subtitle">Offline copy of <span id="target-host"></span></p>
+    <p class="subtitle" id="subtitle">Offline cached mirror</p>
   </header>
 
-  <section class="status-card" id="status-card">
+  <!-- Configuration section (shown if repo URL not set) -->
+  <section class="config-card" id="config-section" hidden>
+    <h2>Setup</h2>
+    <p class="help-text">Enter your GitHub repo URL where the producer pushes mirrored content:</p>
+    <input
+      type="text"
+      id="repo-url-input"
+      class="repo-url-input"
+      placeholder="https://github.com/username/mirror-repo"
+      spellcheck="false"
+    />
+    <p class="example-text">Examples: <code>https://github.com/your-user/your-repo</code> or <code>git@github.com:your-user/your-repo.git</code></p>
+    <button id="repo-url-save-btn" class="primary">Save and start</button>
+    <p class="error" id="config-error" hidden></p>
+    <p class="success" id="config-message" hidden></p>
+  </section>
+
+  <!-- Status section (shown if repo URL is set) -->
+  <section class="status-card" id="status-section" hidden>
     <div class="status-row">
       <span class="status-label">Status</span>
       <span class="status-value" id="status-value">…</span>
@@ -37,13 +55,13 @@
     <p class="error" id="error" hidden></p>
   </section>
 
-  <section class="actions">
+  <section class="actions" id="actions-section">
     <button id="sync-now" class="primary">Sync now</button>
     <a id="open-site" class="secondary" href="#" target="_blank" rel="noopener">Open mirror</a>
   </section>
 
   <footer>
-    <p class="muted">Source: <span id="repo-source"></span></p>
+    <p class="muted">Source: <span id="repo-source">not configured</span></p>
   </footer>
 
   <script src="popup.js" type="module"></script>

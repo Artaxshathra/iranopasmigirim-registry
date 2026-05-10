@@ -1,20 +1,20 @@
-// Sync engine.
+// Sync engine for request-response protocol.
 //
-// Plan of one tick:
-//   1. Get tip commit + tree SHA (1 API call).
-//   2. If tree SHA matches what we cached, exit. Zero further bandwidth.
-//   3. Verify the commit's signature against TRUSTED_SIGNERS.
-//      If verification fails, abort — keep the existing cache untouched.
-//   4. Recursive tree listing (1 API call).
-//   5. Diff against IndexedDB:
-//        a. blobs whose sha matches what we have   -> skip
-//        b. blobs whose sha differs (or are new)   -> fetch from raw CDN
-//        c. paths in DB not in tree                -> delete
-//   6. Write the new tree SHA + sync timestamp to meta.
+// Flow:
+//   1. Get user's configured repo URL from storage
+//   2. Poll user's repo on CONTENT_BRANCH
+//   3. Fetch tip commit + tree SHA
+//   4. Verify signature against producer's public key
+//   5. If unchanged, exit (tree-SHA short-circuit)
+//   6. Recursive tree listing and diff against IndexedDB
+//   7. Fetch new/changed files, delete removed files
+//   8. Cache everything, emit status updates
 //
-// Backoff: tracked in `meta` so it survives SW restarts. On any failure we
-// double the cooldown up to MAX_BACKOFF_MINUTES, on success we reset to
-// the configured POLL_INTERVAL_MINUTES.
+// Backoff: tracked in meta so it survives SW restarts. Doubles on failure,
+// resets to POLL_INTERVAL_MINUTES on success.
+//
+// User must configure repo URL before sync can run. Repo must exist and have
+// content/ branch with signed commits from producer.
 
 import {
   resolvePointer, getTree, fetchRaw, verifyCommit,
@@ -68,16 +68,30 @@ function setStatus(patch) {
   emit();
 }
 
+// Get the user's configured mirror repo URL from storage.
+// Returns null if not configured.
+async function getUserRepoUrl() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get('userRepoUrl', (result) => {
+      resolve(result && result.userRepoUrl ? String(result.userRepoUrl).trim() : null);
+    });
+  });
+}
+
 export async function syncOnce({ force = false } = {}) {
   if (inFlight) return inFlight;
   inFlight = (async () => {
     setStatus({ state: 'syncing', lastError: null, progress: { done: 0, total: 0 } });
     try {
-      const commit = await resolvePointer();
+      const userRepoUrl = await getUserRepoUrl();
+      if (!userRepoUrl) {
+        throw new Error('Mirror repo URL not configured. Set it in the extension popup.');
+      }
+
+      const commit = await resolvePointer(userRepoUrl);
       const lastSha = await getMeta('treeSha');
       if (!force && commit.treeSha === lastSha) {
-        // Nothing changed since last poll. This is the common case and the
-        // whole point of the tree-SHA short-circuit: we paid one API call.
+        // Nothing changed since last poll. Tree-SHA short-circuit saves bandwidth.
         setStatus({
           state: 'ok',
           lastSyncAt: Date.now(),
@@ -90,15 +104,14 @@ export async function syncOnce({ force = false } = {}) {
         return { skipped: true };
       }
 
-      // Verify before we ingest a single byte. If verification fails, we
-      // intentionally leave the existing cache alone — a hijacked GitHub
-      // account or man-in-the-middle is exactly the threat model here.
+      // Verify signature. If verification fails, keep existing cache untouched
+      // — a hijacked GitHub account or MitM is exactly the threat model.
       const verdict = await verifyCommit(commit);
       if (!verdict.ok) {
-        throw new Error(`signature: ${verdict.reason}`);
+        throw new Error(`signature verification failed: ${verdict.reason}`);
       }
 
-      const tree = await getTree(commit.treeSha);
+      const tree = await getTree(userRepoUrl, commit.treeSha);
       if (tree.length > MAX_FILES_PER_SYNC) {
         throw new Error(`tree has ${tree.length} files, exceeds MAX_FILES_PER_SYNC`);
       }
@@ -130,7 +143,7 @@ export async function syncOnce({ force = false } = {}) {
       for (let i = 0; i < writes.length; i++) {
         const blob = writes[i];
         try {
-          const buf = await fetchRaw(blob.path, commit.sha);
+          const buf = await fetchRaw(userRepoUrl, blob.path, commit.sha);
           if (buf.byteLength > MAX_FILE_SIZE_BYTES) {
             throw new Error(`downloaded size exceeds MAX_FILE_SIZE_BYTES for ${blob.path}`);
           }

@@ -115,3 +115,61 @@ header .subtitle { font-size: 12px; color: var(--dim); margin-top: 2px; }
 
 footer { font-size: 11px; color: var(--dim); }
 .muted { color: var(--dim); word-break: break-all; }
+
+/* Config section */
+.config-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.config-card h2 {
+  font-size: 14px;
+  font-weight: 600;
+}
+.config-card .help-text {
+  font-size: 12px;
+  color: var(--dim);
+  margin: 0;
+}
+.config-card .example-text {
+  font-size: 11px;
+  color: var(--dim);
+  margin: 0;
+}
+.config-card code {
+  background: var(--bg);
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-family: 'Courier New', monospace;
+  font-size: 11px;
+}
+.repo-url-input {
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 12px;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.repo-url-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(91,155,255,0.15);
+}
+.repo-url-input::placeholder {
+  color: var(--dim);
+}
+.success {
+  margin: 0;
+  padding: 8px 10px;
+  background: rgba(78,197,107,0.08);
+  border: 1px solid rgba(78,197,107,0.3);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--ok);
+}
