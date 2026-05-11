@@ -4,128 +4,121 @@ Mirror is a GitHub-only offline snapshot extension with a request-response proto
 
 ---
 
-## Quick Navigation
+## Quick Start
 
-- Local test in a few minutes: [Quick Start (5-min)](#quick-start-5-min)
-- Full production setup: [OPERATIONS.md](../OPERATIONS.md)
-- Development workflow: [Local browser testing (simple)](#local-browser-testing-simple)
-- System design and trust model: [Architecture](#architecture)
+Setup everything with one command:
+
+```bash
+./setup.sh dev
+```
+
+This builds the extension locally. Load dist/chrome in Chrome at chrome://extensions.
 
 ---
 
-## Quick Start (5-min)
-
-Want to test the extension locally in 2 commands?
+## All Commands
 
 ```bash
-npm run dev:chrome
-# Load dist/chrome in Chrome at chrome://extensions
-
-# Firefox build
-npm run dev:firefox  
-# Load dist/firefox in Firefox at about:debugging
+./setup.sh dev                              # Local development
+./setup.sh dev test                         # Run tests
+./setup.sh dev build                        # Production build
+./setup.sh registry OWNER REPO              # Setup registry on GitHub
+./setup.sh producer CONFIG_PATH             # Setup producer server
+./setup.sh install-ext PATH                 # Install extension
+./setup.sh verify                           # Run quality checks
+./setup.sh clean                            # Clean artifacts
+./setup.sh help                             # Show help
 ```
 
-**Full production guide (registry, producer server, user deployment):** See [OPERATIONS.md](../OPERATIONS.md)
+---
+
+## How It Works
+
+User creates request → Producer mirrors & signs → Extension verifies & caches → User opens offline
 
 ---
 
 ## Architecture
 
-1. User registers by committing a request document to a fixed registry repository.
-2. Producer validates request policy and ownership proof.
-3. Producer mirrors approved website content, sanitizes active surfaces, signs delivery commits, and pushes to the user's repository delivery branch.
-4. Extension verifies signatures, syncs files incrementally, and serves the snapshot from extension origin.
+1. User commits request to registry repository
+2. Producer validates ownership proof and whitelisted host
+3. Producer scrapes site, sanitizes content, signs delivery commit
+4. Extension verifies signature against pinned producer key
+5. Extension stores and serves site offline from IndexedDB
 
-## Security model
+Security enforced at each step:
+- Mandatory OpenPGP signature verification
+- Host whitelist enforcement (sync and serve time)
+- XSS/injection sanitization in producer
+- Git ref syntax validation
+- Manifest size limits and JSON parsing guards
+- Path policy enforcement per whitelisted host
 
-- Signature verification is mandatory by default.
-- Host whitelist is enforced during registration and sync manifest validation.
-- Serve-time path policy blocks out-of-policy snapshot paths.
-- Mirror output is read-only and sanitizes risky interactive surfaces.
+---
 
-## Current workflow
+## Project Structure
 
-- Extension
-  - Configure your GitHub repository URL in popup.
-  - Create a registration package from popup.
-  - Commit generated request file to registry repo.
-  - Commit generated ownership nonce file to your own repo.
-  - Refresh status in popup.
-  - Sync and open offline snapshot.
+- Extension runtime: src/background/
+- Extension UI: src/popup/
+- Configuration: src/config.js
+- Producer: pusher/mirror_and_push.py
+- Tests: test/, pusher/test_producer.py
+- Setup: setup.sh (all commands)
 
-- Producer
-  - Run `pusher/mirror_and_push.py` with `run-once` or `daemon`.
-  - Producer reads registry requests, verifies ownership, mirrors approved hosts, pushes delivery, and writes status files.
+---
 
-## Build and test
+## Full Documentation
 
-```bash
-npm test
-npm run build
-python3 -m py_compile pusher/mirror_and_push.py
-python3 -m unittest -v pusher/test_producer.py
-```
+Production setup guide (registry, producer, user onboarding):
+[OPERATIONS.md](OPERATIONS.md)
 
-## Local browser testing (simple)
+Quick deployment checklists and diagnostics:
+[DEPLOYMENT.md](DEPLOYMENT.md)
 
-If you load `src/` directly, browser will fail with "Manifest file is missing" because manifests live at project root and build output is generated under `dist/`.
+---
 
-Run one command:
+## Testing and Building
 
-```bash
-./scripts/test-local.sh chrome
-```
-
-or for Firefox:
+Run all verifications:
 
 ```bash
-./scripts/test-local.sh firefox
+./setup.sh verify
 ```
 
-Then load the built folder in your browser:
-- Chrome: `chrome://extensions` -> Developer mode -> Load unpacked -> `dist/chrome`
-- Firefox: `about:debugging` -> This Firefox -> Load Temporary Add-on -> select any file inside `dist/firefox` (for example `manifest.json`)
+Results:
+- 80 extension tests
+- 14 producer tests
+- Python syntax validation
+- Production build validation
 
-Fast rebuild without tests:
+---
+
+## Development
+
+Build for local testing:
 
 ```bash
-npm run dev:chrome
-npm run dev:firefox
+./setup.sh dev chrome
 ```
 
-## Main files
+or
 
-- Extension runtime: `src/background/`
-- Popup workflow: `src/popup/`
-- Protocol config: `src/config.js`
-- Producer: `pusher/mirror_and_push.py`
-- Extension tests: `test/`
-- Producer tests: `pusher/test_producer.py`
+```bash
+./setup.sh dev firefox
+```
 
-## Going to Production
+Then load dist/chrome or dist/firefox in your browser.
 
-For a **complete, step-by-step guide** covering:
-
-- Setting up the central registry repository on GitHub
-- Deploying the producer server (installation, systemd timer, GPG keys)
-- User onboarding workflow
-- End-to-end example (request → approval → delivery → offline serving)
-- Troubleshooting and maintenance
-
-See [OPERATIONS.md](../OPERATIONS.md)
-
-That document walks through:
-1. **Phase 1:** Registry repository setup
-2. **Phase 2:** Producer server setup (systemd automation)
-3. **Phase 3:** Extension installation (Chrome + Firefox)
-4. Complete user workflow with examples
-5. Common issues and resolutions
-6. Advanced configuration (approval workflows, rate limiting, geographic mirroring)
-
-Start there if you're deploying this system beyond local testing.
+---
 
 ## Notes
 
-- This repository is now generic and no longer tied to a single legacy target website.
-- Hardened release builds are gated by signer pins and registry URL checks (`scripts/release-gate.js`).
+- Generic and not tied to a single website
+- Hardened release builds with enforced trust pins
+- All data stored locally (no cloud sync)
+- Requires GitHub connectivity for requests and deliveries
+
+---
+
+**Version:** 0.2.0
+**Last Updated:** May 11, 2026

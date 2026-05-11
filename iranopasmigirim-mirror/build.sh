@@ -1,53 +1,36 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd "$(dirname "$0")"
+SET_UP_SCRIPT="$(dirname "$0")/setup.sh"
+COMMAND="${1:-build}"
 
-usage() {
-  cat <<'EOF'
-Usage:
-  ./build.sh                 # build both targets
-  ./build.sh build           # same as default
-  ./build.sh chrome          # build chrome target only
-  ./build.sh firefox         # build firefox target only
-  ./build.sh test            # run unit tests
-  ./build.sh release         # alias of build (release-gated by default)
-  ./build.sh ci              # install + test + build
-  ./build.sh clean           # clean dist
-EOF
-}
-
-cmd="${1:-build}"
-
-case "$cmd" in
+case "$COMMAND" in
   build)
-    npm run build
+    exec "$SET_UP_SCRIPT" dev build
     ;;
   chrome)
-    npm run build:chrome
+    exec "$SET_UP_SCRIPT" dev chrome
     ;;
   firefox)
-    npm run build:firefox
+    exec "$SET_UP_SCRIPT" dev firefox
     ;;
   test)
-    npm test
+    exec "$SET_UP_SCRIPT" dev test
     ;;
   release)
-    npm run build
+    exec "$SET_UP_SCRIPT" dev build
     ;;
   ci)
-    npm install
-    npm test
-    npm run build
+    exec "$SET_UP_SCRIPT" verify
     ;;
   clean)
-    npm run clean
+    exec "$SET_UP_SCRIPT" clean
     ;;
   help|-h|--help)
-    usage
+    exec "$SET_UP_SCRIPT" help
     ;;
   *)
-    echo "Unknown command: $cmd" >&2
+    echo "Unknown command: $COMMAND" >&2
     echo
     usage
     exit 1
