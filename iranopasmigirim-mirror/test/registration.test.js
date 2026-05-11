@@ -93,7 +93,7 @@ describe('registration: remote-state merge', () => {
       {
         state: 'approved',
         reason: 'ok',
-        commitSha: 'abc1234',
+        commitSha: 'a'.repeat(40),
         deliveryBranch: 'content',
         producerFingerprint: 'AA BB CC DD EE FF 00 11 22 33 44 55 66 77 88 99 AA BB CC DD',
       },
@@ -104,7 +104,7 @@ describe('registration: remote-state merge', () => {
     assert.equal(updated.ownership.verified, true);
     assert.equal(updated.registry.state, 'approved');
     assert.equal(updated.delivery.ready, true);
-    assert.equal(updated.delivery.commitSha, 'abc1234');
+    assert.equal(updated.delivery.commitSha, 'a'.repeat(40));
     assert.equal(updated.delivery.producerFingerprint, 'AABBCCDDEEFF00112233445566778899AABBCCDD');
   });
 
@@ -144,5 +144,24 @@ describe('registration: remote-state merge', () => {
     assert.equal(updated.delivery.commitSha, null);
     assert.equal(updated.delivery.ready, false);
     assert.equal(updated.delivery.producerFingerprint, null);
+  });
+
+  it('ignores short commit SHAs from remote status', () => {
+    const draft = createRegistrationDraft({
+      userRepoUrl: 'https://github.com/example/user-mirror',
+      requestedUrl: 'https://bbc.com/news',
+    });
+
+    const updated = mergeRegistrationRemoteState(
+      draft,
+      {
+        state: 'approved',
+        commitSha: 'abc1234',
+      },
+      draft.ownership.nonce,
+    );
+
+    assert.equal(updated.delivery.commitSha, null);
+    assert.equal(updated.delivery.ready, false);
   });
 });

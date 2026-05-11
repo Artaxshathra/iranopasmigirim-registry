@@ -203,6 +203,12 @@ def validate_branch_name(name: str) -> str:
         die("branch cannot be empty")
     if n.startswith("-") or ".." in n or " " in n:
         die(f"invalid branch name: {name!r}")
+    if n.endswith("/") or n.endswith(".") or "/." in n or n.startswith("."):
+        die(f"invalid branch name: {name!r}")
+    if any(ch in n for ch in ("~", "^", ":", "?", "*", "[", "\\")):
+        die(f"invalid branch name: {name!r}")
+    if "@{" in n or "//" in n:
+        die(f"invalid branch name: {name!r}")
     return n
 
 
@@ -503,35 +509,50 @@ def clear_scraper_control_files(content_dir: Path) -> None:
 
 
 def is_payment_url(url: str, blocked_domains: list[str]) -> bool:
-    lower = url.lower()
-    return any(d in lower for d in blocked_domains)
+    try:
+        parsed = urlparse(url)
+        host = (parsed.hostname or "").strip().lower()
+    except Exception:
+        return False
+    if not host:
+        return False
+    host = host[4:] if host.startswith("www.") else host
+    domains = [d.strip().lower() for d in blocked_domains if d and d.strip()]
+    for domain in domains:
+        if host == domain or host.endswith("." + domain):
+            return True
+    return False
 
 
 def is_stream_url(url: str, blocked_exts: list[str]) -> bool:
-    lower = url.lower()
-    return any(ext in lower for ext in blocked_exts)
+    try:
+        path = urlparse(url).path.lower()
+    except Exception:
+        return False
+    exts = [ext.strip().lower() for ext in blocked_exts if ext and ext.strip()]
+    return any(path.endswith(ext) for ext in exts)
 
 
 def sanitize_html_text(html: str, cfg: Config) -> str:
-    html = re.sub(r"<script\\b[^>]*>.*?</script>", "", html, flags=re.IGNORECASE | re.DOTALL)
-    html = re.sub(r"<(iframe|object|embed)\\b[^>]*>.*?</\\1>", "", html, flags=re.IGNORECASE | re.DOTALL)
-    html = re.sub(r"\\son[a-z]+\\s*=\\s*([\"']).*?\\1", "", html, flags=re.IGNORECASE | re.DOTALL)
-    html = re.sub(r"\\son[a-z]+\\s*=\\s*[^\\s>]+", "", html, flags=re.IGNORECASE)
+    html = re.sub(r"<script\b[^>]*>.*?</script>", "", html, flags=re.IGNORECASE | re.DOTALL)
+    html = re.sub(r"<(iframe|object|embed)\b[^>]*>.*?</\1>", "", html, flags=re.IGNORECASE | re.DOTALL)
+    html = re.sub(r"\son[a-z]+\s*=\s*([\"']).*?\1", "", html, flags=re.IGNORECASE | re.DOTALL)
+    html = re.sub(r"\son[a-z]+\s*=\s*[^\s>]+", "", html, flags=re.IGNORECASE)
     html = re.sub(
-        r"<meta\\b([^>]*?)http-equiv\\s*=\\s*([\"']?)refresh\\2([^>]*)>",
+        r"<meta\b([^>]*?)http-equiv\s*=\s*([\"']?)refresh\2([^>]*)>",
         "",
         html,
         flags=re.IGNORECASE,
     )
 
     html = re.sub(
-        r"<form\\b([^>]*)>",
-        r'<form\\1 action="/__mirror_blocked.html?reason=form" method="get" onsubmit="return false;">',
+        r"<form\b([^>]*)>",
+        r'<form\1 action="/__mirror_blocked.html?reason=form" method="get" onsubmit="return false;">',
         html,
         flags=re.IGNORECASE,
     )
 
-    attr_re = re.compile(r"\\b(href|src|poster)\\s*=\\s*([\"'])([^\"']+)\\2", re.IGNORECASE)
+    attr_re = re.compile(r"\b(href|src|poster)\s*=\s*([\"'])([^\"']+)\2", re.IGNORECASE)
 
     def replace_attr(match: re.Match[str]) -> str:
         attr, quote, value = match.group(1), match.group(2), match.group(3)

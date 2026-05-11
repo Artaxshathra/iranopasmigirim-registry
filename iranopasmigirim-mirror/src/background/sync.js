@@ -46,6 +46,7 @@ let status = {
 };
 
 const MAINTENANCE_INTERVAL_MS = MAINTENANCE_INTERVAL_HOURS * 60 * 60 * 1000;
+const MAX_MANIFEST_SIZE_BYTES = 1024 * 1024;
 
 export function getStatus() { return status; }
 
@@ -124,8 +125,8 @@ export async function syncOnce({ force = false } = {}) {
       if (expectedSigner && (!actualSigner || expectedSigner !== actualSigner)) {
         throw new Error('signature verification failed: producer fingerprint mismatch');
       }
-      if (!expectedSigner && actualSigner && registrationDraft && registrationDraft.userRepoUrl === userRepoUrl) {
-        await persistRegistrationSigner(registrationDraft, actualSigner);
+      if (!expectedSigner && actualSigner) {
+        throw new Error('signature verification failed: producer fingerprint not configured in registration');
       }
 
       const tree = await getTree(userRepoUrl, commit.treeSha);
@@ -455,14 +456,23 @@ async function loadAndValidateSnapshotManifest({ tree, userRepoUrl, commitSha, p
   }
   preloadedContent.set(MIRROR_MANIFEST_PATH, manifestBuffer);
 
-  let manifest;
+  const manifest = parseSnapshotManifestBuffer(manifestBuffer);
+  return validateSnapshotManifest(manifest);
+}
+
+export function parseSnapshotManifestBuffer(manifestBuffer) {
+  if (!manifestBuffer || typeof manifestBuffer.byteLength !== 'number') {
+    throw new Error('snapshot manifest buffer missing');
+  }
+  if (manifestBuffer.byteLength > MAX_MANIFEST_SIZE_BYTES) {
+    throw new Error(`snapshot manifest exceeds MAX_MANIFEST_SIZE_BYTES (${MAX_MANIFEST_SIZE_BYTES})`);
+  }
   try {
     const text = new TextDecoder('utf-8').decode(manifestBuffer);
-    manifest = JSON.parse(text);
+    return JSON.parse(text);
   } catch (_) {
     throw new Error('snapshot manifest is not valid JSON');
   }
-  return validateSnapshotManifest(manifest);
 }
 
 function isPathAllowedForHost(path, siteHost) {

@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import {
   gitBlobShaHex,
   isQuotaError,
+  parseSnapshotManifestBuffer,
   shouldRunMaintenance,
   validateSnapshotManifest,
 } from '../src/background/sync.js';
@@ -76,5 +77,15 @@ describe('sync: snapshot manifest validation', () => {
         entryPath: 'sport/index.html',
       });
     }, /outside whitelist paths/);
+  });
+
+  it('rejects malformed manifest JSON payload', () => {
+    const bad = new TextEncoder().encode('{not-json').buffer;
+    assert.throws(() => parseSnapshotManifestBuffer(bad), /not valid JSON/);
+  });
+
+  it('rejects oversized manifest payload', () => {
+    const oversized = new ArrayBuffer((1024 * 1024) + 1);
+    assert.throws(() => parseSnapshotManifestBuffer(oversized), /exceeds MAX_MANIFEST_SIZE_BYTES/);
   });
 });

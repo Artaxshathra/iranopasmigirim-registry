@@ -4,14 +4,12 @@ Mirror is a GitHub-only offline snapshot extension with a request-response proto
 
 ---
 
-## 📖 Quick Navigation
+## Quick Navigation
 
-**Are you:**
-
-- **🏃 In a hurry?** → [5-Minute Quick Start](#quick-start-5-min) (test locally)
-- **🔧 Setting up production?** → **[OPERATIONS.md](../OPERATIONS.md)** (registry, producer, deployment)
-- **👨‍💻 Developing the extension?** → [Local Browser Testing](#local-browser-testing-simple)
-- **📚 Understanding the system?** → [Architecture](#architecture) (this file)
+- Local test in a few minutes: [Quick Start (5-min)](#quick-start-5-min)
+- Full production setup: [OPERATIONS.md](../OPERATIONS.md)
+- Development workflow: [Local browser testing (simple)](#local-browser-testing-simple)
+- System design and trust model: [Architecture](#architecture)
 
 ---
 
@@ -21,11 +19,11 @@ Want to test the extension locally in 2 commands?
 
 ```bash
 npm run dev:chrome
-# → Load dist/chrome in Chrome (see: chrome://extensions)
+# Load dist/chrome in Chrome at chrome://extensions
 
-# Or for Firefox:
+# Firefox build
 npm run dev:firefox  
-# → Load dist/firefox in Firefox (see: about:debugging)
+# Load dist/firefox in Firefox at about:debugging
 ```
 
 **Full production guide (registry, producer server, user deployment):** See [OPERATIONS.md](../OPERATIONS.md)
@@ -115,7 +113,7 @@ For a **complete, step-by-step guide** covering:
 - End-to-end example (request → approval → delivery → offline serving)
 - Troubleshooting and maintenance
 
-**→ See [OPERATIONS.md](../OPERATIONS.md)**
+See [OPERATIONS.md](../OPERATIONS.md)
 
 That document walks through:
 1. **Phase 1:** Registry repository setup

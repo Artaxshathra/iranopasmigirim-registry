@@ -175,7 +175,7 @@ export function mergeRegistrationRemoteState(draft, registryStatus, proofText, n
     }
     if (typeof registryStatus.commitSha === 'string' && registryStatus.commitSha.trim()) {
       const sha = registryStatus.commitSha.trim().toLowerCase();
-      if (/^[0-9a-f]{7,64}$/.test(sha)) {
+      if (/^([0-9a-f]{40}|[0-9a-f]{64})$/.test(sha)) {
         next.delivery.commitSha = sha;
         next.delivery.ready = true;
       }

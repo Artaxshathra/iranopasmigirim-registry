@@ -11,12 +11,16 @@ from mirror_and_push import (  # type: ignore
     Config,
     current_head_sha,
     is_host_allowed,
+    is_payment_url,
+    is_stream_url,
     normalize_host,
     parse_request_doc,
     rollback_delivery_checkout,
+    sanitize_html_text,
     sanitize_relpath,
     stage_commit_and_push_with_rollback,
     status_file_path,
+    validate_branch_name,
 )
 
 
@@ -105,6 +109,41 @@ class ProducerParsingTests(unittest.TestCase):
         cfg = self.make_cfg()
         p = status_file_path(cfg, 'req/invalid*id')
         self.assertEqual(str(p), '/tmp/registry/status/req_invalid_id.json')
+
+    def test_validate_branch_name_rejects_ref_syntax(self):
+        self.assertEqual(validate_branch_name('content'), 'content')
+        with self.assertRaises(SystemExit):
+            validate_branch_name('content@{1}')
+        with self.assertRaises(SystemExit):
+            validate_branch_name('content~1')
+
+    def test_payment_url_domain_matching_is_host_based(self):
+        blocked = ['paypal.com', 'zarinpal.com']
+        self.assertTrue(is_payment_url('https://paypal.com/checkout', blocked))
+        self.assertTrue(is_payment_url('https://www.paypal.com/checkout', blocked))
+        self.assertTrue(is_payment_url('https://api.paypal.com/v1', blocked))
+        self.assertFalse(is_payment_url('https://example.com/?q=paypal.com', blocked))
+        self.assertFalse(is_payment_url('not a url', blocked))
+
+    def test_stream_url_matching_uses_path_suffix(self):
+        blocked = ['.m3u8', '.mpd']
+        self.assertTrue(is_stream_url('https://cdn.example.com/live/playlist.m3u8', blocked))
+        self.assertFalse(is_stream_url('https://cdn.example.com/readme.m3u8.txt', blocked))
+        self.assertFalse(is_stream_url('https://example.com/?file=video.m3u8', blocked))
+
+    def test_sanitize_html_text_removes_active_content(self):
+        cfg = self.make_cfg()
+        html = (
+            '<html><head><script>alert(1)</script><meta http-equiv="refresh" content="0;url=https://evil"></head>'
+            '<body><a href="javascript:alert(1)">x</a><img src="x" onerror="alert(1)">'
+            '<form action="/pay"></form></body></html>'
+        )
+        out = sanitize_html_text(html, cfg)
+        self.assertNotIn('<script', out.lower())
+        self.assertNotIn('http-equiv="refresh"', out.lower())
+        self.assertNotIn(' onerror=', out.lower())
+        self.assertIn('/__mirror_blocked.html?reason=active-content', out)
+        self.assertIn('/__mirror_blocked.html?reason=form', out)
 
 
 class ProducerRollbackTests(unittest.TestCase):
