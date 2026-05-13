@@ -66,7 +66,7 @@ Key options:
 - `user_repos_root`: local root for user repository checkouts
 - `delivery_subdir`: set to empty string to deliver at repo root (recommended for extension compatibility)
 - `whitelist_hosts`: allowed host list
-- `signing_key`: GPG key id used for signed commits
+- `signing_key`: GPG secret key id or full fingerprint used for signed commits. Find it on the producer host with `gpg --list-secret-keys --keyid-format LONG`, then copy the long id from the `sec` line, for example `0xDD13EC3368AA05D1`.
 - `interval_minutes`: daemon cadence
 - `max_requests_per_run`: cap per cycle
 - `block_payment_domains`: blocked payment links rewritten to a blocked page

@@ -466,6 +466,7 @@ seed_default_producer_config_from_registry() {
     sed -i "s|^[[:space:]]*registry_repo_url[[:space:]]*=.*$|registry_repo_url = \"$registry_url\"|" "$config_path"
     log_step "Default producer config registry_repo_url set to $registry_url"
     log_info "Remaining producer edits: signing_key, whitelist_hosts"
+    log_info "Find signing_key with: gpg --list-secret-keys --keyid-format LONG"
   else
     log_warn "Default producer config already points to $current_registry_url; leaving it unchanged"
   fi
@@ -598,6 +599,7 @@ cmd_producer() {
     python3 "$SCRIPT_DIR/pusher/mirror_and_push.py" --config "$config_path" init
     log_step "Starter config created"
     log_info "Edit these fields before rerunning: registry_repo_url, signing_key, whitelist_hosts"
+    log_info "Find signing_key with: gpg --list-secret-keys --keyid-format LONG"
     log_info "Config: $config_path"
     log_info "Starter template: $starter_config"
     return 0

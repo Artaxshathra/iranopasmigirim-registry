@@ -93,16 +93,32 @@ remaining placeholder values at minimum for:
 - `signing_key`
 - `whitelist_hosts`
 
+`signing_key` is the GPG secret key ID or full fingerprint the producer uses
+for signed git commits. It must already exist on the producer host in your GPG
+secret keyring. Find it with:
+
+```bash
+gpg --list-secret-keys --keyid-format LONG
+```
+
+Copy the long key ID from the `sec` line into `signing_key`, usually with the
+`0x` prefix. Example: `sec   ed25519/DD13EC3368AA05D1 ...` means
+`signing_key = "0xDD13EC3368AA05D1"`.
+
 If you skipped step 4 or you are using a custom config path, also set
 `registry_repo_url` manually.
 
-Quick validation of that config:
+Optional quick validation of that user-level config:
 
 ```bash
 ./setup.sh producer
 ```
 
-Full producer host provisioning:
+That command only checks the existing config file and runs producer doctor. It
+does not install services or provision the machine.
+
+If you are setting up a dedicated producer server, use this separate full-host
+provisioning path instead:
 
 ```bash
 python3 pusher/mirror_and_push.py setup-system \
@@ -110,6 +126,11 @@ python3 pusher/mirror_and_push.py setup-system \
   --registry-repo-url https://github.com/YOUR_USER/YOUR_REGISTRY_REPO \
   --signing-key 0xYOUR_LONG_KEY_ID
 ```
+
+That command is not a second validation pass for
+`~/.config/iranopasmigirim-producer/config.toml`. It provisions the server,
+writes the system config under `/etc/mirror/`, and installs the systemd unit
+and timer.
 
 The root `--install-deps` path supports `apt-get`, `dnf`, `yum`, `pacman`,
 `zypper`, and `apk` on Linux producer hosts, and it also ensures the active

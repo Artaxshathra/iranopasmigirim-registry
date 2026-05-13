@@ -112,19 +112,35 @@ Edit that file first. At minimum set:
 - `signing_key`
 - `whitelist_hosts`
 
+`signing_key` is the GPG secret key ID or full fingerprint the producer uses
+for signed git commits. It must already exist on the producer host in your GPG
+secret keyring. Find it with:
+
+```bash
+gpg --list-secret-keys --keyid-format LONG
+```
+
+Copy the long key ID from the `sec` line into `signing_key`, usually with the
+`0x` prefix. Example: `sec   ed25519/DD13EC3368AA05D1 ...` means
+`signing_key = "0xDD13EC3368AA05D1"`.
+
 If you skipped the `registry` step or you are using a custom config path, also
 set `registry_repo_url` manually.
+
+Optional quick validation of that user-level config:
 
 ```bash
 ./setup.sh producer
 ```
 
-This does not install services. It validates dependencies, checks Python
-syntax, and runs the producer `doctor` command.
+This only checks the existing config file. It validates dependencies, checks
+Python syntax, and runs the producer `doctor` command. It does not install
+services or provision the machine.
 
 ### Option B: Full Host Provisioning
 
-For a dedicated producer host, use the producer's built-in setup command:
+For a dedicated producer host, use the producer's built-in setup command
+instead:
 
 ```bash
 python3 pusher/mirror_and_push.py setup-system \
@@ -132,6 +148,10 @@ python3 pusher/mirror_and_push.py setup-system \
   --registry-repo-url https://github.com/YOUR_USER/YOUR_REGISTRY_REPO \
   --signing-key 0xYOUR_LONG_KEY_ID
 ```
+
+This is a separate path from `./setup.sh producer`. It provisions the server,
+writes the system config under `/etc/mirror/`, and installs the systemd unit
+and timer.
 
 The root `--install-deps` path supports `apt-get`, `dnf`, `yum`, `pacman`,
 `zypper`, and `apk`, and it also ensures the active Python runtime can parse

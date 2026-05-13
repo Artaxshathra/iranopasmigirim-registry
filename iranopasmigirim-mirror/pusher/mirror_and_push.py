@@ -54,6 +54,11 @@ interval_minutes = 15
 max_requests_per_run = 10
 
 # Signed commits.
+# signing_key must be a GPG secret key id or full fingerprint that exists on
+# this producer host. Find it with:
+#   gpg --list-secret-keys --keyid-format LONG
+# Copy the long id from the `sec` line, for example:
+#   sec   ed25519/DD13EC3368AA05D1 ...
 signing_key = "0xDD13EC3368AA05D1"
 gpg_passphrase_env = "GPG_PASSPHRASE"
 
