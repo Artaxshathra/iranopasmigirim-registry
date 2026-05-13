@@ -623,6 +623,17 @@ run_producer_cli_with_config() {
     die "Producer config not found: $config_path"
   fi
 
+  # Auto-migrate legacy /srv/ paths to user-writable XDG paths for non-root users.
+  if [[ "${EUID:-$(id -u)}" -ne 0 ]] && grep -q '"/srv/mirror-' "$config_path" 2>/dev/null; then
+    local xdg_data="${XDG_DATA_HOME:-$HOME/.local/share}/iranopasmigirim-producer"
+    log_info "Migrating system paths to user-writable paths in config..."
+    sed -i \
+      -e "s|registry_repo_path = \"/srv/mirror-registry\"|registry_repo_path = \"$xdg_data/registry\"|" \
+      -e "s|user_repos_root = \"/srv/mirror-users\"|user_repos_root = \"$xdg_data/users\"|" \
+      "$config_path"
+    log_step "Config paths updated: $xdg_data/{registry,users}"
+  fi
+
   log_info "Verifying producer script..."
   python3 -m py_compile "$SCRIPT_DIR/pusher/mirror_and_push.py"
   log_step "Producer syntax valid"

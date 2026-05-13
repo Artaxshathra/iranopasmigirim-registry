@@ -33,7 +33,10 @@ from urllib.parse import urlparse
 DEFAULT_CONFIG = """# Mirror producer configuration (Phase 3)
 
 # Registry repo (fixed producer-controlled inbox/outbox).
-registry_repo_path = "/srv/mirror-registry"
+# Default paths are user-writable (XDG_DATA_HOME / ~/.local/share).
+# For a dedicated system installation (root-provisioned), use /srv/mirror-registry
+# and /srv/mirror-users instead, and run via ./setup.sh producer setup-system.
+registry_repo_path = "~/.local/share/iranopasmigirim-producer/registry"
 registry_repo_url = "https://github.com/your-org/mirror-registry"
 registry_remote = "origin"
 registry_branch = "registrations"
@@ -41,7 +44,7 @@ requests_subdir = "requests"
 status_subdir = "status"
 
 # Per-user local checkouts root.
-user_repos_root = "/srv/mirror-users"
+user_repos_root = "~/.local/share/iranopasmigirim-producer/users"
 
 # Delivery settings.
 # Empty means write mirrored files at repository root (recommended).
@@ -348,7 +351,7 @@ def load_config(path: Path) -> Config:
         registry_branch=str(raw.get("registry_branch", "registrations")),
         requests_subdir=str(raw.get("requests_subdir", "requests")),
         status_subdir=str(raw.get("status_subdir", "status")),
-        user_repos_root=Path(str(raw.get("user_repos_root", "/srv/mirror-users"))).expanduser().resolve(),
+        user_repos_root=Path(str(raw.get("user_repos_root", "~/.local/share/iranopasmigirim-producer/users"))).expanduser().resolve(),
         delivery_subdir=str(raw.get("delivery_subdir", "")),
         default_delivery_branch=str(raw.get("default_delivery_branch", "content")),
         default_entry_path=str(raw.get("default_entry_path", "index.html")),

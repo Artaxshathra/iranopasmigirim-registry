@@ -1,13 +1,22 @@
-# Copy to /etc/mirror/mirror.toml and edit.
+# Producer configuration example.
+#
+# For user-level operation (non-root), copy to:
+#   ~/.config/iranopasmigirim-producer/config.toml
+# and use the default paths below (XDG_DATA_HOME / ~/.local/share).
+#
+# For a dedicated root-provisioned host, copy to /etc/mirror/mirror.toml
+# and change registry_repo_path to /srv/mirror-registry and
+# user_repos_root to /srv/mirror-users, then run:
+#   ./setup.sh producer setup-system <REGISTRY_REPO_URL> <SIGNING_KEY>
 
-registry_repo_path = "/srv/mirror-registry"
+registry_repo_path = "~/.local/share/iranopasmigirim-producer/registry"
 registry_repo_url = "https://github.com/your-org/mirror-registry"
 registry_remote = "origin"
 registry_branch = "registrations"
 requests_subdir = "requests"
 status_subdir = "status"
 
-user_repos_root = "/srv/mirror-users"
+user_repos_root = "~/.local/share/iranopasmigirim-producer/users"
 delivery_subdir = ""
 default_delivery_branch = "content"
 default_entry_path = "index.html"
