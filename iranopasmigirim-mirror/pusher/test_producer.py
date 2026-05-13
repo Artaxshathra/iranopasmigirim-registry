@@ -12,6 +12,9 @@ from mirror_and_push import (  # type: ignore
     DEFAULT_CONFIG,
     current_head_sha,
     detect_linux_package_manager,
+    ensure_pip_for_active_python,
+    has_toml_parser,
+    install_tomli_for_active_python,
     is_host_allowed,
     is_payment_url,
     is_stream_url,
@@ -218,13 +221,46 @@ class ProducerDependencyInstallTests(unittest.TestCase):
 
     def test_package_names_for_tools_maps_linux_package_names(self):
         self.assertEqual(
-            package_names_for_tools('apt-get', ['python3', 'git', 'gpg', 'httrack']),
-            ['python3', 'git', 'gnupg', 'httrack'],
+            package_names_for_tools('apt-get', ['python3', 'git', 'gpg', 'httrack', 'tomli']),
+            ['python3', 'git', 'gnupg', 'httrack', 'python3-tomli'],
         )
         self.assertEqual(
-            package_names_for_tools('pacman', ['python3', 'gpg', 'git']),
-            ['python', 'gnupg', 'git'],
+            package_names_for_tools('pacman', ['python3', 'gpg', 'git', 'tomli']),
+            ['python', 'gnupg', 'git', 'python-tomli'],
         )
+
+    def test_has_toml_parser_false_when_both_modules_are_missing(self):
+        import builtins
+
+        real_import = builtins.__import__
+
+        def fake_import(name, *args, **kwargs):
+            if name in ('tomllib', 'tomli'):
+                raise ModuleNotFoundError(name)
+            return real_import(name, *args, **kwargs)
+
+        with patch('builtins.__import__', side_effect=fake_import):
+            self.assertFalse(has_toml_parser())
+
+    def test_ensure_pip_for_active_python_uses_existing_pip(self):
+        with patch('mirror_and_push.subprocess.run') as run_mock:
+            run_mock.return_value.returncode = 0
+            ensure_pip_for_active_python()
+            run_mock.assert_called_once_with(
+                [sys.executable, '-m', 'pip', '--version'],
+                stdout=unittest.mock.ANY,
+                stderr=unittest.mock.ANY,
+                text=True,
+            )
+
+    def test_install_tomli_for_active_python_uses_user_install_when_not_root(self):
+        with patch('mirror_and_push.ensure_pip_for_active_python') as ensure_pip_mock, \
+                patch('mirror_and_push.os.geteuid', return_value=1000), \
+                patch('mirror_and_push.run') as run_mock:
+            install_tomli_for_active_python()
+
+        ensure_pip_mock.assert_called_once()
+        run_mock.assert_called_once_with([sys.executable, '-m', 'pip', 'install', '--user', 'tomli'])
 
     def test_maybe_install_deps_uses_pacman_when_available(self):
         def fake_which(name):
@@ -233,12 +269,43 @@ class ProducerDependencyInstallTests(unittest.TestCase):
             return None
 
         with patch('mirror_and_push.shutil.which', side_effect=fake_which), \
+                patch('mirror_and_push.has_toml_parser', side_effect=[False, True]), \
                 patch('mirror_and_push.run') as run_mock:
             maybe_install_deps()
 
         self.assertEqual(run_mock.call_count, 2)
         run_mock.assert_any_call(['pacman', '-Sy', '--noconfirm'])
-        run_mock.assert_any_call(['pacman', '-S', '--needed', '--noconfirm', 'python', 'git', 'gnupg', 'httrack'])
+        run_mock.assert_any_call(['pacman', '-S', '--needed', '--noconfirm', 'python', 'git', 'gnupg', 'httrack', 'python-tomli'])
+
+    def test_maybe_install_deps_skips_tomli_when_python_already_has_toml_parser(self):
+        def fake_which(name):
+            if name == 'apt-get':
+                return f'/usr/bin/{name}'
+            return None
+
+        with patch('mirror_and_push.shutil.which', side_effect=fake_which), \
+                patch('mirror_and_push.has_toml_parser', return_value=True), \
+                patch('mirror_and_push.run') as run_mock:
+            maybe_install_deps()
+
+        run_mock.assert_any_call(['apt-get', 'update'])
+        run_mock.assert_any_call(['apt-get', 'install', '-y', '--no-install-recommends', 'python3', 'git', 'gnupg', 'httrack'])
+
+    def test_maybe_install_deps_falls_back_to_pip_when_package_install_does_not_fix_active_python(self):
+        def fake_which(name):
+            if name == 'apt-get':
+                return f'/usr/bin/{name}'
+            return None
+
+        with patch('mirror_and_push.shutil.which', side_effect=fake_which), \
+                patch('mirror_and_push.has_toml_parser', side_effect=[False, False]), \
+                patch('mirror_and_push.install_tomli_for_active_python') as install_tomli_mock, \
+                patch('mirror_and_push.run') as run_mock:
+            maybe_install_deps()
+
+        run_mock.assert_any_call(['apt-get', 'update'])
+        run_mock.assert_any_call(['apt-get', 'install', '-y', '--no-install-recommends', 'python3', 'git', 'gnupg', 'httrack', 'python3-tomli'])
+        install_tomli_mock.assert_called_once()
 
     def test_maybe_install_deps_fails_without_supported_package_manager(self):
         with patch('mirror_and_push.shutil.which', return_value=None):

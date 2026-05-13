@@ -73,4 +73,16 @@ describe('setup.sh: dependency management', () => {
     assert.match(setupScript, /ensure_command_dependencies "Development environment" node npm/);
     assert.match(setupScript, /ensure_command_dependencies "Verification" node npm python3/);
   });
+
+  it('installs Python TOML parser support when the runtime lacks tomllib', () => {
+    assert.match(setupScript, /python_has_toml_parser\(\)/);
+    assert.match(setupScript, /install_python_toml_parser\(\)/);
+    assert.match(setupScript, /install_python_toml_parser_via_pip\(\)/);
+    assert.match(setupScript, /python3 -m ensurepip --upgrade/);
+    assert.match(setupScript, /python3 -m pip install --user tomli/);
+    assert.match(setupScript, /apt-get\|dnf\|yum\|zypper\)/);
+    assert.match(setupScript, /package_name="python3-tomli"/);
+    assert.match(setupScript, /ensure_python_toml_support "Producer setup"/);
+    assert.match(setupScript, /ensure_python_toml_support "Verification"/);
+  });
 });

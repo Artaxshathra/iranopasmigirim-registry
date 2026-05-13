@@ -290,6 +290,47 @@ def parse_toml_text(content: str) -> dict:
             ) from exc
 
 
+def has_toml_parser() -> bool:
+    try:
+        import tomllib  # type: ignore[attr-defined]
+        return True
+    except Exception:
+        try:
+            import tomli  # type: ignore[import-not-found]
+            return True
+        except Exception:
+            return False
+
+
+def ensure_pip_for_active_python() -> None:
+    check = subprocess.run(
+        [sys.executable, "-m", "pip", "--version"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if check.returncode == 0:
+        return
+
+    bootstrap = subprocess.run(
+        [sys.executable, "-m", "ensurepip", "--upgrade"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if bootstrap.returncode != 0:
+        msg = (bootstrap.stderr or bootstrap.stdout or "ensurepip failed").strip()
+        raise SystemExit(f"pip unavailable for active python: {msg}")
+
+
+def install_tomli_for_active_python() -> None:
+    ensure_pip_for_active_python()
+    cmd = [sys.executable, "-m", "pip", "install", "tomli"]
+    if os.geteuid() != 0:
+        cmd.insert(4, "--user")
+    run(cmd)
+
+
 def load_config(path: Path) -> Config:
     raw = parse_toml_text(path.read_text(encoding="utf-8"))
     return Config(
@@ -987,36 +1028,42 @@ def package_names_for_tools(package_manager: str, tools: list[str]) -> list[str]
             "git": "git",
             "gpg": "gnupg",
             "httrack": "httrack",
+            "tomli": "python3-tomli",
         },
         "dnf": {
             "python3": "python3",
             "git": "git",
             "gpg": "gnupg2",
             "httrack": "httrack",
+            "tomli": "python3-tomli",
         },
         "yum": {
             "python3": "python3",
             "git": "git",
             "gpg": "gnupg2",
             "httrack": "httrack",
+            "tomli": "python3-tomli",
         },
         "pacman": {
             "python3": "python",
             "git": "git",
             "gpg": "gnupg",
             "httrack": "httrack",
+            "tomli": "python-tomli",
         },
         "zypper": {
             "python3": "python3",
             "git": "git",
             "gpg": "gpg2",
             "httrack": "httrack",
+            "tomli": "python3-tomli",
         },
         "apk": {
             "python3": "python3",
             "git": "git",
             "gpg": "gnupg",
             "httrack": "httrack",
+            "tomli": "py3-tomli",
         },
     }
     manager_map = package_map.get(package_manager)
@@ -1038,39 +1085,35 @@ def maybe_install_deps() -> None:
     if package_manager is None:
         raise SystemExit("--install-deps requested but no supported Linux package manager was found")
 
-    packages = package_names_for_tools(package_manager, ["python3", "git", "gpg", "httrack"])
+    required_tools = ["python3", "git", "gpg", "httrack"]
+    if not has_toml_parser():
+        required_tools.append("tomli")
+
+    packages = package_names_for_tools(package_manager, required_tools)
 
     if package_manager == "apt-get":
         run(["apt-get", "update"])
         run(["apt-get", "install", "-y", "--no-install-recommends", *packages])
-        return
-
-    if package_manager == "dnf":
+    elif package_manager == "dnf":
         run(["dnf", "makecache", "-y"])
         run(["dnf", "install", "-y", *packages])
-        return
-
-    if package_manager == "yum":
+    elif package_manager == "yum":
         run(["yum", "makecache", "-y"])
         run(["yum", "install", "-y", *packages])
-        return
-
-    if package_manager == "pacman":
+    elif package_manager == "pacman":
         run(["pacman", "-Sy", "--noconfirm"])
         run(["pacman", "-S", "--needed", "--noconfirm", *packages])
-        return
-
-    if package_manager == "zypper":
+    elif package_manager == "zypper":
         run(["zypper", "--non-interactive", "refresh"])
         run(["zypper", "--non-interactive", "install", "--no-recommends", *packages])
-        return
-
-    if package_manager == "apk":
+    elif package_manager == "apk":
         run(["apk", "update"])
         run(["apk", "add", "--no-cache", *packages])
-        return
+    else:
+        raise SystemExit(f"unsupported package manager for --install-deps: {package_manager}")
 
-    raise SystemExit(f"unsupported package manager for --install-deps: {package_manager}")
+    if not has_toml_parser():
+        install_tomli_for_active_python()
 
 
 def write_default_secrets_file() -> None:

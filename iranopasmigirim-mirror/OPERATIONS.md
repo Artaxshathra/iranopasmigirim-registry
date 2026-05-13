@@ -98,9 +98,11 @@ prerequisite/config check:
 If the default config does not exist, the helper creates
 `~/.config/iranopasmigirim-producer/config.toml` automatically.
 
-The helper checks for `python3`, `git`, `gpg`, and `httrack` and installs any
-missing producer prerequisite automatically when it can detect `apt-get`,
-`dnf`, `yum`, `pacman`, `zypper`, `apk`, or `brew`.
+The helper checks for `python3`, `git`, `gpg`, `httrack`, and Python TOML
+parser support. It installs missing producer prerequisites automatically when
+it can detect `apt-get`, `dnf`, `yum`, `pacman`, `zypper`, `apk`, or `brew`,
+and falls back to installing `tomli` into the active `python3` interpreter
+when distro packages do not satisfy that runtime.
 
 If you already ran `./setup.sh registry ...` on this machine and are using the
 default config path, `registry_repo_url` is seeded automatically.
@@ -132,7 +134,8 @@ python3 pusher/mirror_and_push.py setup-system \
 ```
 
 The root `--install-deps` path supports `apt-get`, `dnf`, `yum`, `pacman`,
-`zypper`, and `apk`.
+`zypper`, and `apk`, and it also ensures the active Python runtime can parse
+TOML configs.
 
 Relevant files:
 

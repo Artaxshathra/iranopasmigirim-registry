@@ -80,9 +80,11 @@ will create `~/.config/iranopasmigirim-producer/config.toml` automatically:
 ./setup.sh producer
 ```
 
-The helper now checks for `python3`, `git`, `gpg`, and `httrack` and installs
-anything missing automatically when it can use `apt-get`, `dnf`, `yum`,
-`pacman`, `zypper`, `apk`, or `brew`.
+The helper now checks for `python3`, `git`, `gpg`, `httrack`, and Python TOML
+parser support. It installs anything missing automatically when it can use
+`apt-get`, `dnf`, `yum`, `pacman`, `zypper`, `apk`, or `brew`, and falls back
+to installing `tomli` into the active `python3` interpreter when distro
+packages do not satisfy that runtime.
 
 If you already ran the `registry` command on this machine, the default config
 will usually already have `registry_repo_url` filled in.
@@ -111,7 +113,8 @@ python3 pusher/mirror_and_push.py setup-system \
 ```
 
 The root `--install-deps` path supports `apt-get`, `dnf`, `yum`, `pacman`,
-`zypper`, and `apk` on Linux producer hosts.
+`zypper`, and `apk` on Linux producer hosts, and it also ensures the active
+Python runtime can parse TOML configs.
 
 Manual systemd option:
 

@@ -88,6 +88,41 @@ command_exists() {
   command -v "$1" >/dev/null 2>&1
 }
 
+python_has_toml_parser() {
+  python3 - <<'PY' >/dev/null 2>&1
+try:
+    import tomllib  # type: ignore[attr-defined]
+except Exception:
+    import tomli  # type: ignore[import-not-found]
+PY
+}
+
+ensure_python_pip() {
+  if python3 -m pip --version >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if python3 -m ensurepip --upgrade >/dev/null 2>&1; then
+    return 0
+  fi
+
+  die "Python pip is unavailable and could not be bootstrapped with ensurepip"
+}
+
+install_python_toml_parser_via_pip() {
+  local context="$1"
+  local pip_args=(python3 -m pip install tomli)
+
+  ensure_python_pip
+
+  if [[ "$(id -u)" -ne 0 ]]; then
+    pip_args=(python3 -m pip install --user tomli)
+  fi
+
+  log_info "Installing Python TOML parser for $context via pip"
+  "${pip_args[@]}"
+}
+
 run_privileged() {
   if [[ "$(id -u)" -eq 0 ]]; then
     "$@"
@@ -265,6 +300,60 @@ install_missing_tools() {
   log_info "Installing missing dependencies for $context via $manager: ${packages[*]}"
   refresh_package_index "$manager"
   install_packages "$manager" "${packages[@]}"
+}
+
+install_python_toml_parser() {
+  local context="$1"
+  local manager
+  local package_name
+
+  manager="$(detect_package_manager)" || die "Missing Python TOML support for $context and no supported package manager was found"
+
+  case "$manager" in
+    apt-get|dnf|yum|zypper)
+      package_name="python3-tomli"
+      ;;
+    pacman)
+      package_name="python-tomli"
+      ;;
+    apk)
+      package_name="py3-tomli"
+      ;;
+    brew)
+      install_python_toml_parser_via_pip "$context"
+      return
+      ;;
+    *)
+      die "Unsupported package manager for Python TOML support: $manager"
+      ;;
+  esac
+
+  log_info "Installing Python TOML parser for $context via $manager: $package_name"
+  refresh_package_index "$manager"
+  install_packages "$manager" "$package_name"
+
+  if ! python_has_toml_parser; then
+    log_warn "$manager installed $package_name but the active python3 still cannot import tomllib/tomli"
+    install_python_toml_parser_via_pip "$context"
+  fi
+}
+
+ensure_python_toml_support() {
+  local context="$1"
+
+  if python_has_toml_parser; then
+    log_step "Python TOML parser available"
+    return 0
+  fi
+
+  log_warn "$context requires Python TOML parser support (tomllib or tomli)"
+  install_python_toml_parser "$context"
+
+  if ! python_has_toml_parser; then
+    die "Python TOML parser installation completed but tomllib/tomli is still unavailable"
+  fi
+
+  log_step "Python TOML parser available"
 }
 
 ensure_command_dependencies() {
@@ -504,6 +593,7 @@ cmd_producer() {
     log_header "Producer Config Bootstrap"
     log_info "Checking dependencies..."
     ensure_command_dependencies "Producer setup" python3 git gpg httrack
+    ensure_python_toml_support "Producer setup"
     log_info "Config not found; creating starter config..."
     python3 "$SCRIPT_DIR/pusher/mirror_and_push.py" --config "$config_path" init
     log_step "Starter config created"
@@ -517,6 +607,7 @@ cmd_producer() {
   
   log_info "Checking dependencies..."
   ensure_command_dependencies "Producer setup" python3 git gpg httrack
+  ensure_python_toml_support "Producer setup"
 
   log_info "Verifying producer script..."
   python3 -m py_compile "$SCRIPT_DIR/pusher/mirror_and_push.py"
@@ -587,6 +678,7 @@ cmd_verify() {
 
   log_info "Checking dependencies..."
   ensure_command_dependencies "Verification" node npm python3
+  ensure_python_toml_support "Verification"
 
   log_info "Installing dependencies..."
   npm install --silent

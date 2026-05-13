@@ -30,7 +30,8 @@ This command does deterministic, idempotent provisioning:
 - enables `mirror.timer`
 
 `--install-deps` supports `apt-get`, `dnf`, `yum`, `pacman`, `zypper`, and
-`apk` on Linux producer hosts.
+`apk` on Linux producer hosts and ensures the active Python runtime can parse
+TOML configs.
 
 Data hygiene policy (automatic):
 - Sender: local repo maintenance runs periodically (`maintenance_interval_hours`, default 24h) and prunes old unreachable git objects (`prune_after_days`, default 30).
