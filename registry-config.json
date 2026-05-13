@@ -1,0 +1,19 @@
+{
+  "registry_name": "iranopasmigirim-registry",
+  "registry_owner": "Artaxshathra",
+  "registry_url": "https://github.com/Artaxshathra/iranopasmigirim-registry",
+  "api_base": "https://api.github.com/repos/Artaxshathra/iranopasmigirim-registry",
+  "trusted_signers": [
+    {
+      "name": "Primary Producer",
+      "fingerprint": "AF95AB7725D68A2ABBA8B938DD13EC3368AA05D1",
+      "key_url": "https://raw.githubusercontent.com/Artaxshathra/iranopasmigirim-registry/main/keys/producer-public.asc"
+    }
+  ],
+  "branches": {
+    "requests": "requests",
+    "approvals": "approvals",
+    "registrations": "registrations",
+    "deliveries": "deliveries"
+  }
+}
