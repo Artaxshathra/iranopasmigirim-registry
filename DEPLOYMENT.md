@@ -39,6 +39,16 @@ ssh-keygen -t ed25519 -C "your-email@example.com"
 # Press Enter for all prompts (use default location and no passphrase)
 ```
 
+**A.1 If you get "Key is already in use" error:**
+The SSH key is associated with another GitHub account. Choose one:
+- **Option 1:** Remove the key from your other account first, then add it here
+- **Option 2:** Generate a new SSH key with a different name:
+  ```bash
+  ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519_mirror -C "your-email@example.com"
+  # Then add this key to GitHub instead
+  ```
+- **Option 3:** Switch to the other account's SSH key (if it's also yours)
+
 **B. Add SSH key to GitHub (manual):**
 1. Copy your public key:
    ```bash
@@ -58,6 +68,15 @@ ssh -T git@github.com
 ```bash
 git config --global user.email "your-email@example.com"
 git config --global user.name "Your Name"
+```
+
+**D.1 If you used a custom SSH key name (e.g., `id_ed25519_mirror`):**
+Add it to your SSH config so Git uses it automatically:
+```bash
+cat >> ~/.ssh/config << 'EOF'
+Host github.com
+  IdentityFile ~/.ssh/id_ed25519_mirror
+EOF
 ```
 
 ---
