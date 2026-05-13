@@ -65,10 +65,25 @@ The script now:
 
 ## 5. Producer Setup
 
-Quick validation of an existing producer config:
+Run the producer helper once. If the default config does not exist yet, it
+will create it automatically at
+`~/.config/iranopasmigirim-producer/config.toml`.
 
 ```bash
-./setup.sh producer /path/to/your/config.toml
+./setup.sh producer
+```
+
+Edit `~/.config/iranopasmigirim-producer/config.toml` and replace the
+placeholder values at minimum for:
+
+- `registry_repo_url`
+- `signing_key`
+- `whitelist_hosts`
+
+Quick validation of that config:
+
+```bash
+./setup.sh producer
 ```
 
 Full producer host provisioning:
@@ -82,6 +97,19 @@ python3 pusher/mirror_and_push.py setup-system \
 Use `pusher/mirror.service` and `pusher/mirror.timer` if you prefer manual
 systemd installation.
 
+Today, the allowed website set is configured in two places:
+
+- producer config `whitelist_hosts` in your real TOML file: controls which
+  hosts the producer will mirror
+- `iranopasmigirim-mirror/src/config.js` -> `WHITELIST`: controls which
+  hosts and paths the extension will request and accept
+
+Keep those host lists aligned. If a host is missing from either one, the flow
+will fail.
+
+If you want a non-default config location, `./setup.sh producer /path/to/config.toml`
+will create that file automatically when it does not exist yet.
+
 ## 6. Extension Release Configuration
 
 Before building a release for users, update
@@ -90,6 +118,7 @@ Before building a release for users, update
 - the real registry repo URL
 - the signer fingerprint list
 - the signer public key block list
+- the `WHITELIST` host/path policy
 
 Then build:
 

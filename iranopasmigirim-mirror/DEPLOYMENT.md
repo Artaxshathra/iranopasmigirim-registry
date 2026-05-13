@@ -68,10 +68,23 @@ What the script does:
 
 ## 5. Producer Setup
 
-Validation only:
+Validation only. Run the helper once; if the default config does not exist, it
+will create `~/.config/iranopasmigirim-producer/config.toml` automatically:
 
 ```bash
-./setup.sh producer /path/to/your/config.toml
+./setup.sh producer
+```
+
+Then edit `~/.config/iranopasmigirim-producer/config.toml` and set at minimum:
+
+- `registry_repo_url`
+- `signing_key`
+- `whitelist_hosts`
+
+Validation command:
+
+```bash
+./setup.sh producer
 ```
 
 Full server provisioning on a producer host:
@@ -87,6 +100,17 @@ Manual systemd option:
 - sample unit: `pusher/mirror.service`
 - sample timer: `pusher/mirror.timer`
 
+Allowed websites are configured in two places today:
+
+- producer TOML `whitelist_hosts`: producer-side allowed host list
+- [src/config.js](src/config.js) -> `WHITELIST`: extension-side allowed
+  hosts and path policy
+
+Keep them aligned.
+
+If you prefer a different config path, `./setup.sh producer /path/to/config.toml`
+will create it automatically when missing.
+
 ## 6. Extension Release Build
 
 Before building a release for real users, update
@@ -95,6 +119,7 @@ Before building a release for real users, update
 - `REGISTRY_REPO_URL`
 - `TRUSTED_SIGNERS`
 - `TRUSTED_SIGNER_PUBLIC_KEYS`
+- `WHITELIST`
 
 Then build:
 
@@ -127,7 +152,8 @@ ssh -T git@github-work
   build.
 - Wrong producer template: start from
   [pusher/mirror.toml.example](pusher/mirror.toml.example), then replace the
-  placeholder registry URL with your real registry repo.
+  placeholder registry URL, signing key, and `whitelist_hosts` with your real
+  values.
 
 ## 9. More Detail
 

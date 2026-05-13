@@ -9,12 +9,14 @@ if str(THIS_DIR) not in sys.path:
 
 from mirror_and_push import (  # type: ignore
     Config,
+    DEFAULT_CONFIG,
     current_head_sha,
     is_host_allowed,
     is_payment_url,
     is_stream_url,
     normalize_host,
     parse_request_doc,
+    replace_config_assignment,
     rollback_delivery_checkout,
     sanitize_html_text,
     sanitize_relpath,
@@ -116,6 +118,15 @@ class ProducerParsingTests(unittest.TestCase):
             validate_branch_name('content@{1}')
         with self.assertRaises(SystemExit):
             validate_branch_name('content~1')
+
+    def test_replace_config_assignment_updates_matching_key(self):
+        updated = replace_config_assignment(
+            DEFAULT_CONFIG,
+            'signing_key',
+            '"0xABCDEF1234567890"',
+        )
+        self.assertIn('signing_key = "0xABCDEF1234567890"', updated)
+        self.assertNotIn('signing_key = "0xDD13EC3368AA05D1"', updated)
 
     def test_payment_url_domain_matching_is_host_based(self):
         blocked = ['paypal.com', 'zarinpal.com']

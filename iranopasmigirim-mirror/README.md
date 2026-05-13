@@ -24,7 +24,7 @@ development bundle in `dist/chrome`.
 ./setup.sh dev firefox                      # Build Firefox dev bundle
 ./setup.sh dev build                        # Run release build
 ./setup.sh registry OWNER REPO [SSH_ALIAS]  # Bootstrap registry branches/config
-./setup.sh producer CONFIG_PATH             # Validate producer prerequisites/config
+./setup.sh producer [CONFIG_PATH]           # Bootstrap or validate producer config
 ./setup.sh install-ext PATH                 # Print browser install steps
 ./setup.sh verify                           # Extension tests + producer tests + build
 ./setup.sh clean                            # Remove build artifacts

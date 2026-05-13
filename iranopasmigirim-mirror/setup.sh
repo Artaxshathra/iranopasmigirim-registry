@@ -58,8 +58,9 @@ Commands:
                          REPO:  registry repository name
                          SSH_ALIAS: (optional) SSH config alias to use for git (default: github.com)
 
-  producer CONFIG_PATH   Setup producer server with config file
-                         CONFIG_PATH: path to producer config (TOML)
+  producer [CONFIG_PATH] Validate or bootstrap producer config
+                         CONFIG_PATH: optional path to producer config (TOML)
+                         Default: ~/.config/iranopasmigirim-producer/config.toml
 
   install-ext PATH       Install extension from dist folder
                          PATH: path to dist/chrome or dist/firefox
@@ -74,6 +75,7 @@ Examples:
   ./setup.sh dev build
   ./setup.sh registry myusername iranopasmigirim-registry
   ./setup.sh registry myusername iranopasmigirim-registry github-work
+  ./setup.sh producer
   ./setup.sh producer ~/.config/iranopasmigirim-producer/config.toml
   ./setup.sh verify
 
@@ -235,17 +237,18 @@ EOFCFG
 }
 
 cmd_producer() {
-  local config_path="${1:-}"
-
-  if [[ -z "$config_path" ]]; then
-    log_error "Usage: ./setup.sh producer CONFIG_PATH"
-    echo
-    echo "  CONFIG_PATH: path to producer config file (TOML)"
-    exit 1
-  fi
+  local config_path="${1:-$HOME/.config/iranopasmigirim-producer/config.toml}"
+  local starter_config="$SCRIPT_DIR/pusher/mirror.toml.example"
 
   if [[ ! -f "$config_path" ]]; then
-    die "Config file not found: $config_path"
+    log_header "Producer Config Bootstrap"
+    log_info "Config not found; creating starter config..."
+    python3 "$SCRIPT_DIR/pusher/mirror_and_push.py" --config "$config_path" init
+    log_step "Starter config created"
+    log_info "Edit these fields before rerunning: registry_repo_url, signing_key, whitelist_hosts"
+    log_info "Config: $config_path"
+    log_info "Starter template: $starter_config"
+    return 0
   fi
 
   log_header "Producer Server Setup"
@@ -262,11 +265,11 @@ cmd_producer() {
   python3 -m py_compile "$SCRIPT_DIR/pusher/mirror_and_push.py"
   log_step "Producer syntax valid"
 
-  log_info "Testing producer with dry-run..."
+  log_info "Running producer doctor..."
   python3 "$SCRIPT_DIR/pusher/mirror_and_push.py" \
     --config "$config_path" \
-    run-once --dry-run 2>/dev/null || true
-  log_step "Producer dry-run completed"
+    doctor
+  log_step "Producer doctor completed"
 
   echo
   log_header "Producer setup complete"

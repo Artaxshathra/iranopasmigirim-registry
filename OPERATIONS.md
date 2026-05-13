@@ -15,7 +15,7 @@ cd /home/arash/Code/IPM/iranopasmigirim-mirror
 ./setup.sh dev
 ./setup.sh verify
 ./setup.sh registry OWNER REPO [SSH_ALIAS]
-./setup.sh producer CONFIG_PATH
+./setup.sh producer [CONFIG_PATH]
 ```
 
 ## Multi-Account GitHub
@@ -37,8 +37,11 @@ ssh -T git@YOUR_ALIAS
 
 - The registry bootstrap script now supports an optional SSH alias and keeps
   reruns idempotent.
-- The producer template uses a registry placeholder URL; replace it with your
-  real registry repo before deployment.
+- The producer helper now bootstraps the default config automatically at
+  `~/.config/iranopasmigirim-producer/config.toml` when missing.
+- Replace the producer config placeholder values, especially
+  `registry_repo_url`, `signing_key`, and `whitelist_hosts`, before
+  deployment.
 - The extension release still needs a real registry URL and signer pins in
   `iranopasmigirim-mirror/src/config.js` before building for users.
 

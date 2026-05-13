@@ -89,7 +89,20 @@ Use `setup.sh producer` when you already have a config file and want a quick
 prerequisite/config check:
 
 ```bash
-./setup.sh producer /path/to/your/config.toml
+./setup.sh producer
+```
+
+If the default config does not exist, the helper creates
+`~/.config/iranopasmigirim-producer/config.toml` automatically.
+
+Edit that file first. At minimum set:
+
+- `registry_repo_url`
+- `signing_key`
+- `whitelist_hosts`
+
+```bash
+./setup.sh producer
 ```
 
 This does not install services. It validates dependencies, checks Python
@@ -109,6 +122,16 @@ Relevant files:
 
 - starter config: [pusher/mirror.toml.example](pusher/mirror.toml.example)
 - producer CLI docs: [pusher/README.md](pusher/README.md)
+
+Allowed website policy is split today:
+
+- producer TOML `whitelist_hosts`: host allowlist for mirroring
+- [src/config.js](src/config.js) `WHITELIST`: extension request and path policy
+
+Keep those host lists aligned.
+
+For a custom config location, use `./setup.sh producer /path/to/config.toml`.
+If the file is missing, the helper creates it automatically.
 
 ## 5. Manual systemd Setup
 

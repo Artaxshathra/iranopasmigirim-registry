@@ -238,6 +238,14 @@ def validate_interval_minutes(value: int) -> int:
     return value
 
 
+def replace_config_assignment(config_text: str, key: str, rendered_value: str) -> str:
+    pattern = rf"(?m)^{re.escape(key)}\s*=\s*.*$"
+    updated, count = re.subn(pattern, f"{key} = {rendered_value}", config_text, count=1)
+    if count != 1:
+        raise SystemExit(f"missing config key in template: {key}")
+    return updated
+
+
 def prompt_value(label: str, default: str) -> str:
     raw = input(f"{label} [{default}]: ").strip()
     return raw if raw else default
@@ -1087,12 +1095,12 @@ def cmd_setup_system(args: argparse.Namespace) -> int:
     install_binary_from_self()
 
     config_text = DEFAULT_CONFIG
-    config_text = config_text.replace('registry_repo_path = "/srv/mirror-registry"', f'registry_repo_path = "{registry_repo_path}"')
-    config_text = config_text.replace('registry_repo_url = "https://github.com/your-org/mirror-registry"', f'registry_repo_url = "{args.registry_repo_url}"')
-    config_text = config_text.replace('registry_branch = "registrations"', f'registry_branch = "{args.registry_branch}"')
-    config_text = config_text.replace('user_repos_root = "/srv/mirror-users"', f'user_repos_root = "{user_repos_root}"')
-    config_text = config_text.replace('signing_key = "0xABCDEF1234567890"', f'signing_key = "{args.signing_key}"')
-    config_text = config_text.replace('interval_minutes = 15', f'interval_minutes = {args.interval}')
+    config_text = replace_config_assignment(config_text, 'registry_repo_path', json.dumps(str(registry_repo_path)))
+    config_text = replace_config_assignment(config_text, 'registry_repo_url', json.dumps(args.registry_repo_url))
+    config_text = replace_config_assignment(config_text, 'registry_branch', json.dumps(args.registry_branch))
+    config_text = replace_config_assignment(config_text, 'user_repos_root', json.dumps(str(user_repos_root)))
+    config_text = replace_config_assignment(config_text, 'signing_key', json.dumps(args.signing_key))
+    config_text = replace_config_assignment(config_text, 'interval_minutes', str(args.interval))
 
     write_file(config_path, config_text, mode=0o640)
     run(["chown", "root:root", str(config_path)])
