@@ -32,11 +32,29 @@ describe('setup.sh: registry command', () => {
   it('checks remote branches on origin and writes valid GitHub URLs', () => {
     assert.match(setupScript, /git ls-remote --exit-code --heads origin main/);
     assert.match(setupScript, /git ls-remote --exit-code --heads origin "\$branch"/);
-    assert.match(setupScript, /"registry_url": "https:\/\/github\.com\/\$owner\/\$repo"/);
+    assert.match(setupScript, /local registry_public_url="https:\/\/github\.com\/\$owner\/\$repo"/);
+    assert.match(setupScript, /"registry_url": "\$registry_public_url"/);
     assert.match(setupScript, /"api_base": "https:\/\/api\.github\.com\/repos\/\$owner\/\$repo"/);
     assert.match(
       setupScript,
       /"key_url": "https:\/\/raw\.githubusercontent\.com\/\$owner\/\$repo\/main\/keys\/producer-public\.asc"/
+    );
+  });
+
+  it('seeds the default producer config from the registry setup context', () => {
+    assert.match(setupScript, /producer_config_path_default\(\)/);
+    assert.match(setupScript, /seed_default_producer_config_from_registry\(\)/);
+    assert.match(
+      setupScript,
+      /local producer_config_path="\$\(producer_config_path_default\)"/
+    );
+    assert.match(
+      setupScript,
+      /seed_default_producer_config_from_registry "\$producer_config_path" "\$registry_public_url"/
+    );
+    assert.match(
+      setupScript,
+      /Default producer config registry_repo_url set to \$registry_url/
     );
   });
 });

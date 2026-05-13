@@ -61,6 +61,7 @@ The script now:
 - preserves the requested SSH alias end to end
 - creates missing protocol branches on origin
 - writes `registry-config.json` on `main`
+- seeds the default producer config with `registry_repo_url` when possible
 - reruns safely
 
 ## 5. Producer Setup
@@ -73,12 +74,17 @@ will create it automatically at
 ./setup.sh producer
 ```
 
-Edit `~/.config/iranopasmigirim-producer/config.toml` and replace the
-placeholder values at minimum for:
+If you already ran step 4 on this machine, the default config will usually
+already have `registry_repo_url` filled in.
 
-- `registry_repo_url`
+Edit `~/.config/iranopasmigirim-producer/config.toml` and replace the
+remaining placeholder values at minimum for:
+
 - `signing_key`
 - `whitelist_hosts`
+
+If you skipped step 4 or you are using a custom config path, also set
+`registry_repo_url` manually.
 
 Quick validation of that config:
 

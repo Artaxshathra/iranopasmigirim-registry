@@ -37,6 +37,9 @@ ssh -T git@YOUR_ALIAS
 
 - The registry bootstrap script now supports an optional SSH alias and keeps
   reruns idempotent.
+- Running `./setup.sh registry ...` also seeds the default producer config with
+  the registry repo URL when the config is missing or still using the template
+  placeholder.
 - The producer helper now bootstraps the default config automatically at
   `~/.config/iranopasmigirim-producer/config.toml` when missing.
 - Replace the producer config placeholder values, especially

@@ -95,18 +95,23 @@ prerequisite/config check:
 If the default config does not exist, the helper creates
 `~/.config/iranopasmigirim-producer/config.toml` automatically.
 
+If you already ran `./setup.sh registry ...` on this machine and are using the
+default config path, `registry_repo_url` is seeded automatically.
+
 Edit that file first. At minimum set:
 
-- `registry_repo_url`
 - `signing_key`
 - `whitelist_hosts`
+
+If you skipped the `registry` step or you are using a custom config path, also
+set `registry_repo_url` manually.
 
 ```bash
 ./setup.sh producer
 ```
 
 This does not install services. It validates dependencies, checks Python
-syntax, and runs a dry-run invocation.
+syntax, and runs the producer `doctor` command.
 
 ### Option B: Full Host Provisioning
 

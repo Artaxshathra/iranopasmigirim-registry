@@ -130,11 +130,48 @@ cmd_dev() {
   esac
 }
 
+producer_config_path_default() {
+  echo "$HOME/.config/iranopasmigirim-producer/config.toml"
+}
+
+seed_default_producer_config_from_registry() {
+  local config_path="${1:-$(producer_config_path_default)}"
+  local registry_url="${2:-}"
+  local placeholder_registry_url="https://github.com/your-org/mirror-registry"
+  local created=0
+  local current_registry_url=""
+
+  [[ -z "$registry_url" ]] && die "registry_url is required"
+
+  if [[ ! -f "$config_path" ]]; then
+    log_info "Creating default producer config at $config_path"
+    python3 "$SCRIPT_DIR/pusher/mirror_and_push.py" --config "$config_path" init
+    created=1
+  fi
+
+  current_registry_url="$(sed -n 's|^[[:space:]]*registry_repo_url[[:space:]]*=[[:space:]]*"\(.*\)"[[:space:]]*$|\1|p' "$config_path" | head -n 1)"
+
+  if [[ -z "$current_registry_url" ]]; then
+    log_warn "Default producer config is missing registry_repo_url: $config_path"
+    return
+  fi
+
+  if [[ "$created" -eq 1 || "$current_registry_url" == "$placeholder_registry_url" || "$current_registry_url" == "$registry_url" ]]; then
+    sed -i "s|^[[:space:]]*registry_repo_url[[:space:]]*=.*$|registry_repo_url = \"$registry_url\"|" "$config_path"
+    log_step "Default producer config registry_repo_url set to $registry_url"
+    log_info "Remaining producer edits: signing_key, whitelist_hosts"
+  else
+    log_warn "Default producer config already points to $current_registry_url; leaving it unchanged"
+  fi
+}
+
 cmd_registry() {
   local owner="${1:-}"
   local repo="${2:-}"
   local ssh_alias="${3:-github.com}"
   local repo_dir="/tmp/$repo"
+  local registry_public_url="https://github.com/$owner/$repo"
+  local producer_config_path="$(producer_config_path_default)"
 
   if [[ -z "$owner" || -z "$repo" ]]; then
     log_error "Usage: ./setup.sh registry OWNER REPO [SSH_ALIAS]"
@@ -203,7 +240,7 @@ cmd_registry() {
 {
   "registry_name": "$repo",
   "registry_owner": "$owner",
-  "registry_url": "https://github.com/$owner/$repo",
+  "registry_url": "$registry_public_url",
   "api_base": "https://api.github.com/repos/$owner/$repo",
   "trusted_signers": [
     {
@@ -230,10 +267,14 @@ EOFCFG
     log_step "Registry configuration pushed"
   fi
 
+  log_info "Step 4: Seed default producer config"
+  seed_default_producer_config_from_registry "$producer_config_path" "$registry_public_url"
+
   echo
   log_header "Registry setup complete"
-  log_info "Repository: https://github.com/$owner/$repo"
+  log_info "Repository: $registry_public_url"
   log_info "Config file: $repo_dir/registry-config.json"
+  log_info "Producer config: $producer_config_path"
 }
 
 cmd_producer() {

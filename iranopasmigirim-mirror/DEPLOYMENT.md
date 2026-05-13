@@ -64,6 +64,7 @@ What the script does:
 - ensures `main`, `requests`, `registrations`, `approvals`, and `deliveries`
   exist on origin
 - writes `registry-config.json` on `main`
+- seeds the default producer config with `registry_repo_url` when possible
 - keeps reruns idempotent
 
 ## 5. Producer Setup
@@ -75,11 +76,16 @@ will create `~/.config/iranopasmigirim-producer/config.toml` automatically:
 ./setup.sh producer
 ```
 
+If you already ran the `registry` command on this machine, the default config
+will usually already have `registry_repo_url` filled in.
+
 Then edit `~/.config/iranopasmigirim-producer/config.toml` and set at minimum:
 
-- `registry_repo_url`
 - `signing_key`
 - `whitelist_hosts`
+
+If you skipped the `registry` step or you are using a custom config path, also
+set `registry_repo_url` manually.
 
 Validation command:
 
