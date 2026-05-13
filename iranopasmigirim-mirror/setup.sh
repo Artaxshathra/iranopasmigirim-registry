@@ -53,9 +53,10 @@ Commands:
   dev test               Run all tests
   dev build              Run production build
 
-  registry OWNER REPO    Setup central registry repository on GitHub
+  registry OWNER REPO [SSH_ALIAS]    Setup central registry repository on GitHub
                          OWNER: your GitHub username
                          REPO:  registry repository name
+                         SSH_ALIAS: (optional) SSH config alias to use for git (default: github.com)
 
   producer CONFIG_PATH   Setup producer server with config file
                          CONFIG_PATH: path to producer config (TOML)
@@ -72,6 +73,7 @@ Examples:
   ./setup.sh dev test
   ./setup.sh dev build
   ./setup.sh registry myusername iranopasmigirim-registry
+  ./setup.sh registry myusername iranopasmigirim-registry github-work
   ./setup.sh producer ~/.config/iranopasmigirim-producer/config.toml
   ./setup.sh verify
 
@@ -129,12 +131,15 @@ cmd_dev() {
 cmd_registry() {
   local owner="${1:-}"
   local repo="${2:-}"
+  local ssh_alias="${3:-github.com}"
+  local repo_dir="/tmp/$repo"
 
   if [[ -z "$owner" || -z "$repo" ]]; then
-    log_error "Usage: ./setup.sh registry OWNER REPO"
+    log_error "Usage: ./setup.sh registry OWNER REPO [SSH_ALIAS]"
     echo
     echo "  OWNER: your GitHub username"
     echo "  REPO:  registry repository name"
+    echo "  SSH_ALIAS: (optional) SSH config alias to use for git (default: github.com)"
     exit 1
   fi
 
@@ -149,19 +154,39 @@ cmd_registry() {
   echo
   read -p "  Press Enter when repository is created..."
 
+
   log_info "Step 2: Clone and setup branches"
-  local clone_url="git@github.com:$owner/$repo.git"
-  
-  if [[ ! -d "/tmp/$repo" ]]; then
-    git clone "$clone_url" "/tmp/$repo" 2>/dev/null || die "Failed to clone $clone_url"
+  local clone_url="ssh://git@$ssh_alias/$owner/$repo.git"
+
+  # Always remove old temp dir to avoid stale state
+  if [[ -d "$repo_dir" ]]; then
+    rm -rf "$repo_dir"
+    log_info "Removed stale $repo_dir before cloning"
   fi
-  
-  cd "/tmp/$repo"
-  
-  for branch in requests registrations approvals deliveries; do
-    if git rev-parse --verify "$branch" >/dev/null 2>&1; then
-      log_info "Branch $branch already exists"
+
+  git clone "$clone_url" "$repo_dir" || die "Failed to clone $clone_url"
+  cd "$repo_dir"
+  git remote set-url origin "$clone_url"
+
+  # Ensure main branch exists
+  if git ls-remote --exit-code --heads origin main >/dev/null 2>&1; then
+    if git show-ref --verify --quiet refs/heads/main; then
+      git checkout main
     else
+      git checkout -b main --track origin/main
+    fi
+  else
+    git checkout -b main
+    git commit --allow-empty -m "Initial main branch"
+    git push -u origin main
+    log_step "Created and pushed main branch"
+  fi
+
+  for branch in requests registrations approvals deliveries; do
+    if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+      log_info "Branch $branch already exists on origin"
+    else
+      git checkout main
       git checkout -b "$branch"
       git commit --allow-empty -m "Initial $branch branch"
       git push -u origin "$branch"
@@ -195,14 +220,18 @@ cmd_registry() {
 EOFCFG
 
   git add registry-config.json
-  git commit -m "Add registry configuration"
-  git push
-  log_step "Registry configuration pushed"
+  if git diff --cached --quiet -- registry-config.json; then
+    log_info "Registry configuration already up to date"
+  else
+    git commit -m "Add registry configuration"
+    git push -u origin main
+    log_step "Registry configuration pushed"
+  fi
 
   echo
   log_header "Registry setup complete"
   log_info "Repository: https://github.com/$owner/$repo"
-  log_info "Config file: /tmp/$repo/registry-config.json"
+  log_info "Config file: $repo_dir/registry-config.json"
 }
 
 cmd_producer() {
@@ -345,7 +374,7 @@ main() {
       cmd_dev "${2:-all}"
       ;;
     registry)
-      cmd_registry "${2:-}" "${3:-}"
+      cmd_registry "${2:-}" "${3:-}" "${4:-}"
       ;;
     producer)
       cmd_producer "${2:-}"
