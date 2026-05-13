@@ -59,8 +59,18 @@ Commands:
                          SSH_ALIAS: (optional) SSH config alias to use for git (default: github.com)
 
   producer [CONFIG_PATH] Validate or bootstrap producer config
+  producer doctor [CONFIG_PATH]
+                         Validate or bootstrap producer config
                          CONFIG_PATH: optional path to producer config (TOML)
                          Default: ~/.config/iranopasmigirim-producer/config.toml
+  producer run-once [CONFIG_PATH]
+                         Run one producer cycle with the given config
+  producer daemon [CONFIG_PATH]
+                         Run producer forever using interval_minutes from config
+  producer setup-system REGISTRY_REPO_URL SIGNING_KEY
+                         Provision a dedicated producer host and enable mirror.timer
+  producer status       Show mirror.timer status via systemctl
+  producer logs [LINES] Show recent mirror.service logs (default: 50)
 
   install-ext PATH       Install extension from dist folder
                          PATH: path to dist/chrome or dist/firefox
@@ -76,6 +86,11 @@ Examples:
   ./setup.sh registry myusername iranopasmigirim-registry
   ./setup.sh registry myusername iranopasmigirim-registry github-work
   ./setup.sh producer
+  ./setup.sh producer run-once
+  ./setup.sh producer daemon
+  ./setup.sh producer setup-system https://github.com/example/registry 0xA1B2C3D4E5F6A7B8
+  ./setup.sh producer status
+  ./setup.sh producer logs
   ./setup.sh producer ~/.config/iranopasmigirim-producer/config.toml
   ./setup.sh verify
 
@@ -586,8 +601,39 @@ EOFCFG
   log_info "Producer config: $producer_config_path"
 }
 
-cmd_producer() {
-  local config_path="${1:-$HOME/.config/iranopasmigirim-producer/config.toml}"
+producer_command_usage() {
+  echo "Usage:"
+  echo "  ./setup.sh producer [CONFIG_PATH]"
+  echo "  ./setup.sh producer doctor [CONFIG_PATH]"
+  echo "  ./setup.sh producer run-once [CONFIG_PATH]"
+  echo "  ./setup.sh producer daemon [CONFIG_PATH]"
+  echo "  ./setup.sh producer setup-system REGISTRY_REPO_URL SIGNING_KEY"
+  echo "  ./setup.sh producer status"
+  echo "  ./setup.sh producer logs [LINES]"
+}
+
+run_producer_cli_with_config() {
+  local action="$1"
+  local config_path="$2"
+
+  ensure_command_dependencies "Producer setup" python3 git gpg httrack
+  ensure_python_toml_support "Producer setup"
+
+  if [[ ! -f "$config_path" ]]; then
+    die "Producer config not found: $config_path"
+  fi
+
+  log_info "Verifying producer script..."
+  python3 -m py_compile "$SCRIPT_DIR/pusher/mirror_and_push.py"
+  log_step "Producer syntax valid"
+
+  python3 "$SCRIPT_DIR/pusher/mirror_and_push.py" \
+    --config "$config_path" \
+    "$action"
+}
+
+cmd_producer_doctor() {
+  local config_path="$1"
   local starter_config="$SCRIPT_DIR/pusher/mirror.toml.example"
 
   if [[ ! -f "$config_path" ]]; then
@@ -608,23 +654,103 @@ cmd_producer() {
   log_header "Producer Server Setup"
   
   log_info "Checking dependencies..."
-  ensure_command_dependencies "Producer setup" python3 git gpg httrack
-  ensure_python_toml_support "Producer setup"
-
-  log_info "Verifying producer script..."
-  python3 -m py_compile "$SCRIPT_DIR/pusher/mirror_and_push.py"
-  log_step "Producer syntax valid"
-
   log_info "Running producer doctor..."
-  python3 "$SCRIPT_DIR/pusher/mirror_and_push.py" \
-    --config "$config_path" \
-    doctor
+  run_producer_cli_with_config doctor "$config_path"
   log_step "Producer doctor completed"
 
   echo
   log_header "Producer setup complete"
   log_info "Config: $config_path"
-  log_info "Next: complete producer installation and timer setup (see OPERATIONS.md)"
+  log_info "Run one cycle now: ./setup.sh producer run-once $config_path"
+  log_info "Run in foreground: ./setup.sh producer daemon $config_path"
+  log_info "Dedicated host setup: ./setup.sh producer setup-system <REGISTRY_REPO_URL> <SIGNING_KEY>"
+}
+
+cmd_producer_run_once() {
+  local config_path="$1"
+
+  log_header "Producer Run Once"
+  log_info "Checking dependencies..."
+  run_producer_cli_with_config run-once "$config_path"
+}
+
+cmd_producer_daemon() {
+  local config_path="$1"
+
+  log_header "Producer Daemon"
+  log_info "Checking dependencies..."
+  run_producer_cli_with_config daemon "$config_path"
+}
+
+cmd_producer_setup_system() {
+  local registry_repo_url="${1:-}"
+  local signing_key="${2:-}"
+
+  if [[ -z "$registry_repo_url" || -z "$signing_key" ]]; then
+    producer_command_usage
+    die "producer setup-system requires REGISTRY_REPO_URL and SIGNING_KEY"
+  fi
+
+  log_header "Producer System Setup"
+  log_info "Checking dependencies..."
+  ensure_command_dependencies "Producer system setup" python3 git gpg httrack
+  ensure_python_toml_support "Producer system setup"
+
+  run_privileged python3 "$SCRIPT_DIR/pusher/mirror_and_push.py" \
+    setup-system \
+    --install-deps \
+    --non-interactive \
+    --registry-repo-url "$registry_repo_url" \
+    --signing-key "$signing_key"
+}
+
+cmd_producer_status() {
+  log_header "Producer Service Status"
+  run_privileged systemctl status mirror.timer
+}
+
+cmd_producer_logs() {
+  local lines="${1:-50}"
+
+  [[ "$lines" =~ ^[0-9]+$ ]] || die "producer logs [LINES] expects a positive integer"
+
+  log_header "Producer Service Logs"
+  run_privileged journalctl -u mirror.service -n "$lines" --no-pager
+}
+
+cmd_producer() {
+  local action="${1:-doctor}"
+  local config_path=""
+
+  case "$action" in
+    doctor)
+      config_path="${2:-$HOME/.config/iranopasmigirim-producer/config.toml}"
+      cmd_producer_doctor "$config_path"
+      ;;
+    run-once)
+      config_path="${2:-$HOME/.config/iranopasmigirim-producer/config.toml}"
+      cmd_producer_run_once "$config_path"
+      ;;
+    daemon)
+      config_path="${2:-$HOME/.config/iranopasmigirim-producer/config.toml}"
+      cmd_producer_daemon "$config_path"
+      ;;
+    setup-system)
+      cmd_producer_setup_system "${2:-}" "${3:-}"
+      ;;
+    status)
+      cmd_producer_status
+      ;;
+    logs)
+      cmd_producer_logs "${2:-50}"
+      ;;
+    help|-h|--help)
+      producer_command_usage
+      ;;
+    *)
+      cmd_producer_doctor "${1:-$HOME/.config/iranopasmigirim-producer/config.toml}"
+      ;;
+  esac
 }
 
 cmd_install_ext() {

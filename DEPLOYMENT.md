@@ -93,6 +93,10 @@ remaining placeholder values at minimum for:
 - `signing_key`
 - `whitelist_hosts`
 
+`whitelist_hosts` is the main control for "only these few sites should work."
+Put only the hostnames you want mirrored there, for example `bbc.com` and
+`cnn.com`.
+
 `signing_key` is the GPG secret key ID or full fingerprint the producer uses
 for signed git commits. It must already exist on the producer host in your GPG
 secret keyring. Find it with:
@@ -117,20 +121,38 @@ Optional quick validation of that user-level config:
 That command only checks the existing config file and runs producer doctor. It
 does not install services or provision the machine.
 
+Run one producer cycle right now:
+
+```bash
+./setup.sh producer run-once
+```
+
+Run the producer continuously in the foreground:
+
+```bash
+./setup.sh producer daemon
+```
+
 If you are setting up a dedicated producer server, use this separate full-host
 provisioning path instead:
 
 ```bash
-python3 pusher/mirror_and_push.py setup-system \
-  --install-deps \
-  --registry-repo-url https://github.com/YOUR_USER/YOUR_REGISTRY_REPO \
-  --signing-key 0xYOUR_LONG_KEY_ID
+./setup.sh producer setup-system \
+  https://github.com/YOUR_USER/YOUR_REGISTRY_REPO \
+  0xYOUR_LONG_KEY_ID
 ```
 
 That command is not a second validation pass for
 `~/.config/iranopasmigirim-producer/config.toml`. It provisions the server,
 writes the system config under `/etc/mirror/`, and installs the systemd unit
 and timer.
+
+Service inspection shortcuts:
+
+```bash
+./setup.sh producer status
+./setup.sh producer logs
+```
 
 The root `--install-deps` path supports `apt-get`, `dnf`, `yum`, `pacman`,
 `zypper`, and `apk` on Linux producer hosts, and it also ensures the active
@@ -148,6 +170,19 @@ Today, the allowed website set is configured in two places:
 
 Keep those host lists aligned. If a host is missing from either one, the flow
 will fail.
+
+The `block_stream_extensions` and `block_payment_domains` settings are not
+extra allowlists. They are extra deny rules inside already-whitelisted pages:
+
+- `block_stream_extensions`: rewrites stream/media links like `.m3u8` or `.mpd`
+  to a blocked page
+- `block_payment_domains`: rewrites payment/checkout links like `paypal.com`
+  or `stripe.com` to a blocked page
+
+Those `block_*` lists only remove functionality. They do not make any new site
+or feature available. If you want "absolutely nothing except a few news
+websites," the main control is `whitelist_hosts` plus the extension
+`WHITELIST`.
 
 If you want a non-default config location, `./setup.sh producer /path/to/config.toml`
 will create that file automatically when it does not exist yet.

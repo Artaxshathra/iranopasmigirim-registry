@@ -112,6 +112,10 @@ Edit that file first. At minimum set:
 - `signing_key`
 - `whitelist_hosts`
 
+`whitelist_hosts` is the main control for "only these few sites should work."
+Put only the hostnames you want mirrored there, for example `bbc.com` and
+`cnn.com`.
+
 `signing_key` is the GPG secret key ID or full fingerprint the producer uses
 for signed git commits. It must already exist on the producer host in your GPG
 secret keyring. Find it with:
@@ -137,21 +141,39 @@ This only checks the existing config file. It validates dependencies, checks
 Python syntax, and runs the producer `doctor` command. It does not install
 services or provision the machine.
 
+Run one producer cycle right now:
+
+```bash
+./setup.sh producer run-once
+```
+
+Run the producer continuously in the foreground:
+
+```bash
+./setup.sh producer daemon
+```
+
 ### Option B: Full Host Provisioning
 
 For a dedicated producer host, use the producer's built-in setup command
 instead:
 
 ```bash
-python3 pusher/mirror_and_push.py setup-system \
-  --install-deps \
-  --registry-repo-url https://github.com/YOUR_USER/YOUR_REGISTRY_REPO \
-  --signing-key 0xYOUR_LONG_KEY_ID
+./setup.sh producer setup-system \
+  https://github.com/YOUR_USER/YOUR_REGISTRY_REPO \
+  0xYOUR_LONG_KEY_ID
 ```
 
 This is a separate path from `./setup.sh producer`. It provisions the server,
 writes the system config under `/etc/mirror/`, and installs the systemd unit
 and timer.
+
+Service inspection shortcuts:
+
+```bash
+./setup.sh producer status
+./setup.sh producer logs
+```
 
 The root `--install-deps` path supports `apt-get`, `dnf`, `yum`, `pacman`,
 `zypper`, and `apk`, and it also ensures the active Python runtime can parse
@@ -168,6 +190,19 @@ Allowed website policy is split today:
 - [src/config.js](src/config.js) `WHITELIST`: extension request and path policy
 
 Keep those host lists aligned.
+
+The `block_stream_extensions` and `block_payment_domains` settings are not
+extra allowlists. They are extra deny rules inside already-whitelisted pages:
+
+- `block_stream_extensions`: rewrites stream/media links like `.m3u8` or `.mpd`
+  to a blocked page
+- `block_payment_domains`: rewrites payment/checkout links like `paypal.com`
+  or `stripe.com` to a blocked page
+
+Those `block_*` lists only remove functionality. They do not make any new site
+or feature available. If you want "absolutely nothing except a few news
+websites," the main control is `whitelist_hosts` plus the extension
+`WHITELIST`.
 
 For a custom config location, use `./setup.sh producer /path/to/config.toml`.
 If the file is missing, the helper creates it automatically.
@@ -225,9 +260,9 @@ curl https://raw.githubusercontent.com/YOUR_USER/YOUR_REGISTRY_REPO/main/registr
 
 ```bash
 python3 pusher/mirror_and_push.py --config /etc/mirror/mirror.toml doctor
-python3 pusher/mirror_and_push.py --config /etc/mirror/mirror.toml run-once
-sudo systemctl status mirror.timer
-sudo journalctl -u mirror.service -n 50
+./setup.sh producer run-once /etc/mirror/mirror.toml
+./setup.sh producer status
+./setup.sh producer logs
 ```
 
 ### Browser Extension

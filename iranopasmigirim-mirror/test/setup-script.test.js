@@ -86,3 +86,27 @@ describe('setup.sh: dependency management', () => {
     assert.match(setupScript, /ensure_python_toml_support "Verification"/);
   });
 });
+
+describe('setup.sh: producer command surface', () => {
+  it('documents producer runtime and system subcommands', () => {
+    assert.match(setupScript, /producer run-once \[CONFIG_PATH\]/);
+    assert.match(setupScript, /producer daemon \[CONFIG_PATH\]/);
+    assert.match(setupScript, /producer setup-system REGISTRY_REPO_URL SIGNING_KEY/);
+    assert.match(setupScript, /producer status/);
+    assert.match(setupScript, /producer logs \[LINES\]/);
+  });
+
+  it('dispatches producer subcommands to wrapped runtime helpers', () => {
+    assert.match(setupScript, /cmd_producer_run_once\(\)/);
+    assert.match(setupScript, /cmd_producer_daemon\(\)/);
+    assert.match(setupScript, /cmd_producer_setup_system\(\)/);
+    assert.match(setupScript, /cmd_producer_status\(\)/);
+    assert.match(setupScript, /cmd_producer_logs\(\)/);
+    assert.match(setupScript, /run_producer_cli_with_config run-once/);
+    assert.match(setupScript, /run_producer_cli_with_config daemon/);
+    assert.match(setupScript, /setup-system/);
+    assert.match(setupScript, /--install-deps/);
+    assert.match(setupScript, /run_privileged systemctl status mirror\.timer/);
+    assert.match(setupScript, /run_privileged journalctl -u mirror\.service -n "\$lines" --no-pager/);
+  });
+});

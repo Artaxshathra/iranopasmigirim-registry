@@ -28,6 +28,11 @@ dependencies automatically when it can use a supported package manager.
 ./setup.sh dev build                        # Run release build
 ./setup.sh registry OWNER REPO [SSH_ALIAS]  # Bootstrap registry branches/config
 ./setup.sh producer [CONFIG_PATH]           # Bootstrap or validate producer config
+./setup.sh producer run-once [CONFIG_PATH]  # Run one producer cycle now
+./setup.sh producer daemon [CONFIG_PATH]    # Run producer in foreground
+./setup.sh producer setup-system URL KEY    # Provision dedicated producer host
+./setup.sh producer status                  # Show mirror.timer status
+./setup.sh producer logs [LINES]            # Show recent mirror.service logs
 ./setup.sh install-ext PATH                 # Print browser install steps
 ./setup.sh verify                           # Extension tests + producer tests + build
 ./setup.sh clean                            # Remove build artifacts
