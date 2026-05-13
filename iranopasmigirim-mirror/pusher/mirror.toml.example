@@ -28,8 +28,8 @@ max_requests_per_run = 10
 # this producer host. Find it with:
 #   gpg --list-secret-keys --keyid-format LONG
 # Copy the long id from the `sec` line, for example:
-#   sec   ed25519/DD13EC3368AA05D1 ...
-signing_key = "0xDD13EC3368AA05D1"
+#   sec   ed25519/DD13EC3368AA05D1 ...  →  signing_key = "0xDD13EC3368AA05D1"
+signing_key = "YOUR_SIGNING_KEY_ID_HERE"
 gpg_passphrase_env = "GPG_PASSPHRASE"
 user_agent = "Mozilla/5.0 (compatible; offline-mirror-bot/3.0)"
 exclude_patterns = ["-*.zip", "-*.exe", "-*.dmg", "-*.pkg"]
@@ -38,6 +38,9 @@ max_files = 5000
 maintenance_interval_hours = 24
 prune_after_days = 30
 
+# Whitelist: only these hosts can be mirrored.
+# Matching is exact (after stripping www.): adding "bbc.com" allows bbc.com and
+# www.bbc.com but NOT news.bbc.com. List every subdomain you want explicitly.
 whitelist_hosts = [
   "bbc.com",
 ]

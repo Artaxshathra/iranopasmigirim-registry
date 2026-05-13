@@ -280,11 +280,69 @@ python3 pusher/mirror_and_push.py --config /etc/mirror/mirror.toml doctor
 - Forgetting to update `src/config.js` before building a release.
 - Leaving `pusher/mirror.toml.example` placeholder values unchanged.
 
-## 9. Related Docs
+## 9. Operational Notes
+
+### Whitelist host semantics
+
+`whitelist_hosts` uses **exact hostname matching** (after stripping a leading
+`www.`).  Adding `bbc.com` allows `bbc.com` and `www.bbc.com` only.
+It does **not** allow `news.bbc.com` or any other subdomain.  List every
+hostname you want covered explicitly:
+
+```toml
+whitelist_hosts = [
+  "bbc.com",
+  "news.bbc.com",
+]
+```
+
+The extension-side `WHITELIST` in `src/config.js` also uses the same host
+matching and must be kept in sync.
+
+### robots.txt bypass
+
+The producer runs `httrack` with `--robots=0`, which disables robots.txt
+compliance.  Many site terms of service prohibit automated crawling regardless
+of robots.txt.  Only mirror sites you have the right to mirror.
+
+### GPG in headless / daemon mode
+
+When running as a systemd service without a TTY, GPG cannot prompt for a
+passphrase via a pinentry dialog.  Two supported approaches:
+
+**Recommended — passwordless key**: Create a dedicated signing key without a
+passphrase.  GPG signs silently and the service never stalls.
+
+```bash
+gpg --batch --passphrase '' --quick-gen-key "Mirror Producer <mirror@localhost>" ed25519
+```
+
+**Alternative — loopback pinentry with passphrase**:
+
+1. Add `allow-loopback-pinentry` to the service user's
+   `~/.gnupg/gpg-agent.conf` (done automatically by `setup-system`).
+2. Restart the agent: `gpgconf --reload gpg-agent`
+3. Set `GPG_PASSPHRASE=your_passphrase` in `/etc/mirror/secrets.env`.
+
+For user-level daemon mode (`./setup.sh producer daemon`) the agent must
+already be running with loopback pinentry enabled, or the key must have no
+passphrase.
+
+### systemd service `ProtectHome` and path access
+
+The generated systemd service unit sets `ProtectHome=true` (hides `~` from
+the service process) AND lists the actual data paths in `ReadWritePaths=`.
+`ReadWritePaths` overrides `ProtectHome` for the listed paths, so paths under
+a user's home are accessible **only if** they appear in `ReadWritePaths`.
+
+If you relocate `registry_repo_path` or `user_repos_root`, re-run
+`setup-system` so the unit file is regenerated with the updated paths.
+
+## 10. Related Docs
 
 - [README.md](README.md)
 - [DEPLOYMENT.md](DEPLOYMENT.md)
 - [pusher/README.md](pusher/README.md)
 
-**Last Updated:** May 13, 2026
+**Last Updated:** May 14, 2026
 **Version:** 0.2.0

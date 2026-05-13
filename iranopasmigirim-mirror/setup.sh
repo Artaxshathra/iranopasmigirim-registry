@@ -126,12 +126,16 @@ ensure_python_pip() {
 
 install_python_toml_parser_via_pip() {
   local context="$1"
-  local pip_args=(python3 -m pip install tomli)
+  # Use the same Python interpreter that will run the producer script, not
+  # a different one that might be on PATH under a virtualenv.
+  local python_exe
+  python_exe="$(command -v python3)"
+  local pip_args=("$python_exe" -m pip install tomli)
 
   ensure_python_pip
 
   if [[ "$(id -u)" -ne 0 ]]; then
-    pip_args=(python3 -m pip install --user tomli)
+    pip_args=("$python_exe" -m pip install --user tomli)
   fi
 
   log_info "Installing Python TOML parser for $context via pip"
@@ -569,7 +573,7 @@ cmd_registry() {
   "trusted_signers": [
     {
       "name": "Primary Producer",
-      "fingerprint": "AF95AB7725D68A2ABBA8B938DD13EC3368AA05D1",
+      "fingerprint": "PRODUCER_GPG_FINGERPRINT_HERE",
       "key_url": "https://raw.githubusercontent.com/$owner/$repo/main/keys/producer-public.asc"
     }
   ],
@@ -624,13 +628,18 @@ run_producer_cli_with_config() {
   fi
 
   # Auto-migrate legacy /srv/ paths to user-writable XDG paths for non-root users.
+  # Uses Python instead of sed to avoid | delimiter injection via $XDG_DATA_HOME.
   if [[ "${EUID:-$(id -u)}" -ne 0 ]] && grep -q '"/srv/mirror-' "$config_path" 2>/dev/null; then
     local xdg_data="${XDG_DATA_HOME:-$HOME/.local/share}/iranopasmigirim-producer"
     log_info "Migrating system paths to user-writable paths in config..."
-    sed -i \
-      -e "s|registry_repo_path = \"/srv/mirror-registry\"|registry_repo_path = \"$xdg_data/registry\"|" \
-      -e "s|user_repos_root = \"/srv/mirror-users\"|user_repos_root = \"$xdg_data/users\"|" \
-      "$config_path"
+    python3 - "$config_path" "$xdg_data" <<'PYEOF'
+import sys
+path, base = sys.argv[1], sys.argv[2]
+text = open(path, encoding='utf-8').read()
+text = text.replace('registry_repo_path = "/srv/mirror-registry"', f'registry_repo_path = "{base}/registry"')
+text = text.replace('user_repos_root = "/srv/mirror-users"', f'user_repos_root = "{base}/users"')
+open(path, 'w', encoding='utf-8').write(text)
+PYEOF
     log_step "Config paths updated: $xdg_data/{registry,users}"
   fi
 

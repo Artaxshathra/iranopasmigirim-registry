@@ -61,8 +61,8 @@ max_requests_per_run = 10
 # this producer host. Find it with:
 #   gpg --list-secret-keys --keyid-format LONG
 # Copy the long id from the `sec` line, for example:
-#   sec   ed25519/DD13EC3368AA05D1 ...
-signing_key = "0xDD13EC3368AA05D1"
+#   sec   ed25519/DD13EC3368AA05D1 ...  →  signing_key = "0xDD13EC3368AA05D1"
+signing_key = "YOUR_SIGNING_KEY_ID_HERE"
 gpg_passphrase_env = "GPG_PASSPHRASE"
 
 # Mirroring behavior.
@@ -374,6 +374,7 @@ def load_config(path: Path) -> Config:
 def validate_config(cfg: Config) -> None:
     if not cfg.registry_repo_url.strip():
         die("registry_repo_url must be set")
+    validate_repo_url(cfg.registry_repo_url)
     if cfg.interval_minutes < 1:
         die("interval_minutes must be >= 1")
     if cfg.max_requests_per_run < 1:
@@ -605,14 +606,33 @@ def sanitize_html_text(html: str, cfg: Config) -> str:
         flags=re.IGNORECASE,
     )
 
-    html = re.sub(
-        r"<form\b([^>]*)>",
-        r'<form\1 action="/__mirror_blocked.html?reason=form" method="get" onsubmit="return false;">',
-        html,
-        flags=re.IGNORECASE,
-    )
+    # Strip srcset attributes entirely (multi-URL format; responsive images are
+    # inert without scripts and complicate URL scanning).
+    html = re.sub(r"""\s+srcset\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]*)""", " ", html, flags=re.IGNORECASE)
 
-    attr_re = re.compile(r"\b(href|src|poster)\s*=\s*([\"'])([^\"']+)\2", re.IGNORECASE)
+    # Rewrite form tags: strip any existing action/formaction first, then inject
+    # the blocked action.  Without stripping, the browser uses the FIRST action
+    # attribute in the tag — meaning the original unsafe action would win.
+    def _sanitize_form_tag(m: re.Match[str]) -> str:
+        tag = m.group(0)
+        tag = re.sub(
+            r"""\s+(?:action|formaction)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]*)""",
+            " ",
+            tag,
+            flags=re.IGNORECASE,
+        )
+        return re.sub(
+            r"<form\b",
+            '<form action="/__mirror_blocked.html?reason=form" method="get" onsubmit="return false;"',
+            tag,
+            count=1,
+            flags=re.IGNORECASE,
+        )
+
+    html = re.sub(r"<form\b[^>]*>", _sanitize_form_tag, html, flags=re.IGNORECASE)
+
+    # formaction and ping also carry navigation URLs and must be rewritten.
+    attr_re = re.compile(r"\b(href|src|poster|formaction|ping)\s*=\s*([\"'])([^\"']+)\2", re.IGNORECASE)
 
     def replace_attr(match: re.Match[str]) -> str:
         attr, quote, value = match.group(1), match.group(2), match.group(3)
@@ -918,7 +938,6 @@ def run_repo_maintenance(repo_path: Path, interval_hours: int, prune_after_days:
 def run_once(cfg: Config) -> int:
     validate_config(cfg)
     ensure_tools()
-    advisory_safety_note()
 
     update_registry_checkout(cfg)
     files = request_files(cfg)
@@ -999,10 +1018,29 @@ def run_as_user(user: str, cmd: list[str], cwd: Path | None = None, check: bool 
     raise SystemExit("runuser/sudo is required to execute commands as the mirror user")
 
 
-def write_file(path: Path, content: str, mode: int = 0o644) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
-    os.chmod(path, mode)
+def ensure_gpg_loopback(user: str) -> None:
+    """Write allow-loopback-pinentry to the mirror user's gpg-agent.conf so that
+    a passphrase set via GPG_PASSPHRASE env can be forwarded to gpg in a headless
+    systemd service without a TTY/pinentry dialog."""
+    import pwd as _pwd
+    try:
+        entry = _pwd.getpwnam(user)
+    except KeyError:
+        print(f"[warn] user {user!r} not found; skipping gpg-agent.conf setup", flush=True)
+        return
+    gnupg_dir = Path(entry.pw_dir) / ".gnupg"
+    agent_conf = gnupg_dir / "gpg-agent.conf"
+    if agent_conf.is_file():
+        text = agent_conf.read_text(encoding="utf-8")
+        if "allow-loopback-pinentry" in text:
+            return
+        agent_conf.write_text(text.rstrip() + "\nallow-loopback-pinentry\n", encoding="utf-8")
+    else:
+        gnupg_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        agent_conf.write_text("allow-loopback-pinentry\n", encoding="utf-8")
+        os.chmod(agent_conf, 0o600)
+    run(["chown", "-R", f"{user}:{user}", str(gnupg_dir)], check=False)
+    print(f"gpg-agent.conf allow-loopback-pinentry configured for {user}", flush=True)
 
 
 def ensure_system_user(user: str, group: str) -> None:
@@ -1172,6 +1210,7 @@ def cmd_run_once(args: argparse.Namespace) -> int:
     cfg = load_config(Path(args.config))
     lock_path = cfg.registry_repo_path / ".mirror_producer.lock"
     lock = acquire_lock(lock_path)
+    advisory_safety_note()
     try:
         return run_once(cfg)
     finally:
@@ -1182,6 +1221,7 @@ def cmd_daemon(args: argparse.Namespace) -> int:
     cfg = load_config(Path(args.config))
     lock_path = cfg.registry_repo_path / ".mirror_producer.lock"
     lock = acquire_lock(lock_path)
+    advisory_safety_note()  # print once at daemon start, not every cycle
     try:
         while True:
             start = time.time()
@@ -1226,6 +1266,7 @@ def cmd_setup_system(args: argparse.Namespace) -> int:
     config_path = Path(args.config).expanduser().resolve()
 
     ensure_system_user(args.user, args.group)
+    ensure_gpg_loopback(args.user)
     ensure_repo_checkout(args.registry_repo_url, registry_repo_path, args.registry_branch)
     user_repos_root.mkdir(parents=True, exist_ok=True)
     run(["chown", "-R", f"{args.user}:{args.group}", str(registry_repo_path)])

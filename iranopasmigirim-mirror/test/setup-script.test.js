@@ -79,7 +79,9 @@ describe('setup.sh: dependency management', () => {
     assert.match(setupScript, /install_python_toml_parser\(\)/);
     assert.match(setupScript, /install_python_toml_parser_via_pip\(\)/);
     assert.match(setupScript, /python3 -m ensurepip --upgrade/);
-    assert.match(setupScript, /python3 -m pip install --user tomli/);
+    // pip install uses the active interpreter path resolved at runtime, not hardcoded python3
+    assert.match(setupScript, /python_exe.*=.*command -v python3/);
+    assert.match(setupScript, /\$python_exe.*-m pip install.*tomli/);
     assert.match(setupScript, /apt-get\|dnf\|yum\|zypper\)/);
     assert.match(setupScript, /package_name="python3-tomli"/);
     assert.match(setupScript, /ensure_python_toml_support "Producer setup"/);
