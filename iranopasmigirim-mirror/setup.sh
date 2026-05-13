@@ -150,7 +150,7 @@ cmd_registry() {
   read -p "  Press Enter when repository is created..."
 
   log_info "Step 2: Clone and setup branches"
-  local clone_url="https://github.com/$owner/$repo.git"
+  local clone_url="git@github.com:$owner/$repo.git"
   
   if [[ ! -d "/tmp/$repo" ]]; then
     git clone "$clone_url" "/tmp/$repo" 2>/dev/null || die "Failed to clone $clone_url"

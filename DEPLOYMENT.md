@@ -31,7 +31,38 @@ This guide shows how to set up, test, and deploy the Mirror extension and produc
 
 ---
 
-## 2. Registry Repository Setup (Manual + Script)
+## 2. GitHub Setup (First Time Only)
+
+**A. Generate SSH key (if you don't have one):**
+```bash
+ssh-keygen -t ed25519 -C "your-email@example.com"
+# Press Enter for all prompts (use default location and no passphrase)
+```
+
+**B. Add SSH key to GitHub (manual):**
+1. Copy your public key:
+   ```bash
+   cat ~/.ssh/id_ed25519.pub
+   ```
+2. Go to https://github.com/settings/keys
+3. Click "New SSH key"
+4. Paste the key, give it a name, click "Add SSH key"
+
+**C. Verify SSH connection:**
+```bash
+ssh -T git@github.com
+# Should show: "Hi YOUR_USERNAME! You've successfully authenticated..."
+```
+
+**D. Configure Git (first time):**
+```bash
+git config --global user.email "your-email@example.com"
+git config --global user.name "Your Name"
+```
+
+---
+
+## 3. Registry Repository Setup (Manual + Script)
 
 **A. Create the registry repo on GitHub (manual):**
 1. Go to https://github.com/new
@@ -48,7 +79,7 @@ This guide shows how to set up, test, and deploy the Mirror extension and produc
 
 ---
 
-## 3. Producer Server Setup
+## 4. Producer Server Setup
 
 **A. Prerequisites (manual):**
 - Linux server (recommended)
@@ -81,7 +112,7 @@ gpg --gen-key
 
 ---
 
-## 4. Extension Installation (Manual)
+## 5. Extension Installation (Manual)
 
 **A. Build the extension:**
 ```bash
@@ -102,7 +133,7 @@ gpg --gen-key
 
 ---
 
-## 5. Troubleshooting & Diagnostics
+## 6. Troubleshooting & Diagnostics
 
 - **Verify everything:** `./setup.sh verify`
 - **Clean build:** `./setup.sh clean`
@@ -112,7 +143,7 @@ gpg --gen-key
 
 ---
 
-## 6. Common Issues
+## 7. Common Issues
 
 - **Extension doesn't load:** Rebuild and check for errors in manifest.json
 - **Tests fail:** Run `./setup.sh verify` and check output
