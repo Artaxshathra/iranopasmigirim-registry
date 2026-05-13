@@ -1,144 +1,46 @@
-# Production Setup and Operations
+# Mirror Operations (Workspace Index)
 
-All setup is automated through the setup.sh script. This document explains what's happening at each step.
+The mirror project lives in `iranopasmigirim-mirror/`. Run mirror commands from
+that directory, not from the workspace root.
 
----
+## Start Here
 
-## Overview
-
-Mirror consists of three components:
-
-1. Registry Repository (GitHub) - central request/delivery inbox
-2. Producer Server - monitors requests, mirrors content, signs deliveries
-3. Extension (users' browsers) - fetches deliveries, verifies signatures, serves offline
-
----
-
-## Phase 1: Registry Repository Setup
-
-Central GitHub repo that acts as the mirror registry.
-
-Command:
 ```bash
-./setup.sh registry OWNER REPO
+cd /home/arash/Code/IPM/iranopasmigirim-mirror
 ```
 
-Example:
+## Current Command Forms
+
 ```bash
-./setup.sh registry myusername iranopasmigirim-registry
-```
-
-What it does:
-- Creates repository on GitHub (you complete this step manually)
-- Clones and sets up branches: requests, registrations, approvals, deliveries
-- Creates registry-config.json with metadata
-- Pushes configuration to GitHub
-
-Result: Public GitHub repository ready to receive requests and deliver mirrors.
-
----
-
-## Phase 2: Producer Server Setup
-
-Install and configure the producer server that processes requests.
-
-Prerequisites:
-- Python 3.8+
-- Git
-- GPG
-- httrack (web scraper)
-- Linux server recommended
-
-Command:
-```bash
-./setup.sh producer ~/.config/iranopasmigirim-producer/config.toml
-```
-
-What it does:
-- Validates all dependencies installed
-- Checks producer Python syntax
-- Runs dry-run test
-- Provides next steps for systemd timer setup
-
-Configuration:
-Producer needs a TOML config file. Example at: pusher/mirror.toml.example
-
-Key settings:
-- registry_repo_url: URL to central registry
-- signing_key: GPG key fingerprint for signing deliveries
-- whitelist_hosts: which sites can be mirrored
-- block_payment_domains: block payment site requests
-- block_stream_extensions: block streaming file requests
-
-After setup:
-Manual step - configure systemd timer for automation (see [OPERATIONS.md](OPERATIONS.md) Phase 2, Step 2.8)
-
----
-
-## Phase 3: Extension Installation
-
-Install the mirror extension in your browser.
-
-Build:
-```bash
-./setup.sh dev build
-```
-
-Install:
-```bash
-./setup.sh install-ext dist/chrome
-```
-
-or for Firefox:
-```bash
-./setup.sh install-ext dist/firefox
-```
-
-What it does:
-- Shows step-by-step browser loading instructions
-- Extension then connects to registry for syncing
-
----
-
-## User Workflow
-
-After all three phases are set up:
-
-1. User installs extension from Phase 3
-2. User configures registry URL in extension popup
-3. User requests mirror for whitelisted site
-4. Producer processes request within configured interval (default 5 min)
-5. Extension syncs delivery from registry
-6. User accesses offline mirror
-
----
-
-## Quality Assurance
-
-Run all verifications:
-```bash
+./setup.sh dev
 ./setup.sh verify
+./setup.sh registry OWNER REPO [SSH_ALIAS]
+./setup.sh producer CONFIG_PATH
 ```
 
-This validates:
-- 80 extension unit tests
-- 14 producer tests
-- Python syntax
-- Production build integrity
+## Multi-Account GitHub
 
-All tests must pass before release.
+If you use a dedicated SSH alias for mirror operations, verify it first:
 
----
+```bash
+ssh -T git@YOUR_ALIAS
+./setup.sh registry OWNER REPO YOUR_ALIAS
+```
 
-## For More Details
+## Detailed Runbooks
 
-See DEPLOYMENT.md for:
-- Detailed checklists
-- Diagnostic commands
-- Common troubleshooting
-- Advanced configuration
+- [iranopasmigirim-mirror/README.md](iranopasmigirim-mirror/README.md)
+- [iranopasmigirim-mirror/DEPLOYMENT.md](iranopasmigirim-mirror/DEPLOYMENT.md)
+- [iranopasmigirim-mirror/OPERATIONS.md](iranopasmigirim-mirror/OPERATIONS.md)
 
----
+## Notes
+
+- The registry bootstrap script now supports an optional SSH alias and keeps
+  reruns idempotent.
+- The producer template uses a registry placeholder URL; replace it with your
+  real registry repo before deployment.
+- The extension release still needs a real registry URL and signer pins in
+  `iranopasmigirim-mirror/src/config.js` before building for users.
 
 **Version:** 0.2.0
-**Last Updated:** May 11, 2026
+**Last Updated:** May 13, 2026

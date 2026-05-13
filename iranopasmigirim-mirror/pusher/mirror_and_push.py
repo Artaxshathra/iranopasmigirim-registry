@@ -34,7 +34,7 @@ DEFAULT_CONFIG = """# Mirror producer configuration (Phase 3)
 
 # Registry repo (fixed producer-controlled inbox/outbox).
 registry_repo_path = "/srv/mirror-registry"
-registry_repo_url = "https://github.com/ardeshiri/inrtv-extension"
+registry_repo_url = "https://github.com/your-org/mirror-registry"
 registry_remote = "origin"
 registry_branch = "registrations"
 requests_subdir = "requests"

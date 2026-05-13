@@ -1,124 +1,91 @@
 # Mirror (Shahin)
 
-Mirror is a GitHub-only offline snapshot extension with a request-response protocol.
-
----
+Mirror is a GitHub-backed offline snapshot system: a browser extension handles
+user-side request and sync flows, and the producer validates requests, mirrors
+approved content, and signs delivery commits.
 
 ## Quick Start
 
-Setup everything with one command:
+From this directory:
 
 ```bash
 ./setup.sh dev
 ```
 
-This builds the extension locally. Load dist/chrome in Chrome at chrome://extensions.
+That installs dependencies, runs the extension tests, and builds the Chrome
+development bundle in `dist/chrome`.
 
----
-
-## All Commands
+## Command Reference
 
 ```bash
-./setup.sh dev                              # Local development
-./setup.sh dev test                         # Run tests
-./setup.sh dev build                        # Production build
-./setup.sh registry OWNER REPO              # Setup registry on GitHub
-./setup.sh producer CONFIG_PATH             # Setup producer server
-./setup.sh install-ext PATH                 # Install extension
-./setup.sh verify                           # Run quality checks
-./setup.sh clean                            # Clean artifacts
+./setup.sh dev                              # Install deps, test, build Chrome dev bundle
+./setup.sh dev test                         # Run extension tests only
+./setup.sh dev chrome                       # Build Chrome dev bundle
+./setup.sh dev firefox                      # Build Firefox dev bundle
+./setup.sh dev build                        # Run release build
+./setup.sh registry OWNER REPO [SSH_ALIAS]  # Bootstrap registry branches/config
+./setup.sh producer CONFIG_PATH             # Validate producer prerequisites/config
+./setup.sh install-ext PATH                 # Print browser install steps
+./setup.sh verify                           # Extension tests + producer tests + build
+./setup.sh clean                            # Remove build artifacts
 ./setup.sh help                             # Show help
 ```
 
----
+## Multi-Account GitHub
 
-## How It Works
+If you use a dedicated GitHub identity for mirror operations, configure an SSH
+alias and pass it as the optional third argument to `registry`:
 
-User creates request → Producer mirrors & signs → Extension verifies & caches → User opens offline
+```sshconfig
+Host github-work
+  HostName github.com
+  User git
+  IdentityFile ~/.ssh/id_ed25519_mirror
+  IdentitiesOnly yes
+```
 
----
+```bash
+ssh -T git@github-work
+./setup.sh registry YOUR_GITHUB_USERNAME iranopasmigirim-registry github-work
+```
 
-## Architecture
+If you use your default GitHub SSH identity, omit the alias argument.
 
-1. User commits request to registry repository
-2. Producer validates ownership proof and whitelisted host
-3. Producer scrapes site, sanitizes content, signs delivery commit
-4. Extension verifies signature against pinned producer key
-5. Extension stores and serves site offline from IndexedDB
+## Release Notes
 
-Security enforced at each step:
-- Mandatory OpenPGP signature verification
-- Host whitelist enforcement (sync and serve time)
-- XSS/injection sanitization in producer
-- Git ref syntax validation
-- Manifest size limits and JSON parsing guards
-- Path policy enforcement per whitelisted host
+Before shipping a real deployment, update [src/config.js](src/config.js) with
+your actual registry repository URL and signer pins, then rebuild with:
 
----
+```bash
+./setup.sh dev build
+```
 
-## Project Structure
+For producer configuration, start from
+[pusher/mirror.toml.example](pusher/mirror.toml.example).
 
-- Extension runtime: src/background/
-- Extension UI: src/popup/
-- Configuration: src/config.js
-- Producer: pusher/mirror_and_push.py
-- Tests: test/, pusher/test_producer.py
-- Setup: setup.sh (all commands)
+## Documentation
 
----
+- [DEPLOYMENT.md](DEPLOYMENT.md): quick setup checklist and diagnostics
+- [OPERATIONS.md](OPERATIONS.md): detailed registry, producer, and release flow
+- [pusher/README.md](pusher/README.md): producer-specific CLI and config notes
 
-## Full Documentation
-
-Production setup guide (registry, producer, user onboarding):
-[OPERATIONS.md](OPERATIONS.md)
-
-Quick deployment checklists and diagnostics:
-[DEPLOYMENT.md](DEPLOYMENT.md)
-
----
-
-## Testing and Building
-
-Run all verifications:
+## Verification
 
 ```bash
 ./setup.sh verify
 ```
 
-Results:
-- 80 extension tests
-- 14 producer tests
-- Python syntax validation
-- Production build validation
+This runs the extension test suite, producer unit tests, Python syntax checks,
+and the production build gate.
 
----
+## Project Layout
 
-## Development
-
-Build for local testing:
-
-```bash
-./setup.sh dev chrome
-```
-
-or
-
-```bash
-./setup.sh dev firefox
-```
-
-Then load dist/chrome or dist/firefox in your browser.
-
----
-
-## Notes
-
-- Generic and not tied to a single website
-- Hardened release builds with enforced trust pins
-- All data stored locally (no cloud sync)
-- Requires GitHub connectivity for requests and deliveries
-
----
+- `src/background/`: extension runtime, sync, registry, and serving logic
+- `src/popup/`: extension UI for configuration and request flow
+- `src/config.js`: release-time registry and trust-pin configuration
+- `pusher/mirror_and_push.py`: producer CLI and automation entrypoint
+- `test/`: extension tests
+- `setup.sh`: local setup, registry bootstrap, and validation helper
 
 **Version:** 0.2.0
-**Last Updated:** May 11, 2026
+**Last Updated:** May 13, 2026

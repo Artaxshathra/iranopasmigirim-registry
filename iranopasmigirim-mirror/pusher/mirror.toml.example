@@ -1,7 +1,7 @@
 # Copy to /etc/mirror/mirror.toml and edit.
 
 registry_repo_path = "/srv/mirror-registry"
-registry_repo_url = "https://github.com/ardeshiri/inrtv-extension"
+registry_repo_url = "https://github.com/your-org/mirror-registry"
 registry_remote = "origin"
 registry_branch = "registrations"
 requests_subdir = "requests"

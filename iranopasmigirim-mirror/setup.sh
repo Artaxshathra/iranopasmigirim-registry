@@ -271,7 +271,7 @@ cmd_producer() {
   echo
   log_header "Producer setup complete"
   log_info "Config: $config_path"
-  log_info "Next: Setup systemd timer (see OPERATIONS.md Phase 2, Step 2.8)"
+  log_info "Next: complete producer installation and timer setup (see OPERATIONS.md)"
 }
 
 cmd_install_ext() {
@@ -330,7 +330,7 @@ cmd_verify() {
 
   log_info "Running tests..."
   npm test || die "Tests failed"
-  log_step "Tests passed (80 test cases)"
+  log_step "Extension tests passed"
 
   log_info "Running producer validation..."
   python3 -m py_compile pusher/mirror_and_push.py || die "Producer syntax invalid"
@@ -338,7 +338,7 @@ cmd_verify() {
 
   log_info "Running producer unit tests..."
   python3 -m unittest pusher.test_producer >/dev/null 2>&1 || die "Producer tests failed"
-  log_step "Producer tests passed (14 test cases)"
+  log_step "Producer tests passed"
 
   log_info "Running production build..."
   npm run build >/dev/null 2>&1 || die "Build failed"
