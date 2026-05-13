@@ -973,20 +973,104 @@ def install_binary_from_self() -> None:
     os.chmod(dest, 0o755)
 
 
+def detect_linux_package_manager() -> str | None:
+    for manager in ("apt-get", "dnf", "yum", "pacman", "zypper", "apk"):
+        if shutil.which(manager):
+            return manager
+    return None
+
+
+def package_names_for_tools(package_manager: str, tools: list[str]) -> list[str]:
+    package_map = {
+        "apt-get": {
+            "python3": "python3",
+            "git": "git",
+            "gpg": "gnupg",
+            "httrack": "httrack",
+        },
+        "dnf": {
+            "python3": "python3",
+            "git": "git",
+            "gpg": "gnupg2",
+            "httrack": "httrack",
+        },
+        "yum": {
+            "python3": "python3",
+            "git": "git",
+            "gpg": "gnupg2",
+            "httrack": "httrack",
+        },
+        "pacman": {
+            "python3": "python",
+            "git": "git",
+            "gpg": "gnupg",
+            "httrack": "httrack",
+        },
+        "zypper": {
+            "python3": "python3",
+            "git": "git",
+            "gpg": "gpg2",
+            "httrack": "httrack",
+        },
+        "apk": {
+            "python3": "python3",
+            "git": "git",
+            "gpg": "gnupg",
+            "httrack": "httrack",
+        },
+    }
+    manager_map = package_map.get(package_manager)
+    if manager_map is None:
+        raise SystemExit(f"unsupported package manager for --install-deps: {package_manager}")
+
+    packages: list[str] = []
+    seen: set[str] = set()
+    for tool in tools:
+        package_name = manager_map.get(tool, tool)
+        if package_name not in seen:
+            packages.append(package_name)
+            seen.add(package_name)
+    return packages
+
+
 def maybe_install_deps() -> None:
-    if not shutil.which("apt-get"):
-        raise SystemExit("--install-deps requested but apt-get was not found")
-    run(["apt-get", "update", "-y"])
-    run([
-        "apt-get",
-        "install",
-        "-y",
-        "--no-install-recommends",
-        "python3",
-        "git",
-        "gpg",
-        "httrack",
-    ])
+    package_manager = detect_linux_package_manager()
+    if package_manager is None:
+        raise SystemExit("--install-deps requested but no supported Linux package manager was found")
+
+    packages = package_names_for_tools(package_manager, ["python3", "git", "gpg", "httrack"])
+
+    if package_manager == "apt-get":
+        run(["apt-get", "update"])
+        run(["apt-get", "install", "-y", "--no-install-recommends", *packages])
+        return
+
+    if package_manager == "dnf":
+        run(["dnf", "makecache", "-y"])
+        run(["dnf", "install", "-y", *packages])
+        return
+
+    if package_manager == "yum":
+        run(["yum", "makecache", "-y"])
+        run(["yum", "install", "-y", *packages])
+        return
+
+    if package_manager == "pacman":
+        run(["pacman", "-Sy", "--noconfirm"])
+        run(["pacman", "-S", "--needed", "--noconfirm", *packages])
+        return
+
+    if package_manager == "zypper":
+        run(["zypper", "--non-interactive", "refresh"])
+        run(["zypper", "--non-interactive", "install", "--no-recommends", *packages])
+        return
+
+    if package_manager == "apk":
+        run(["apk", "update"])
+        run(["apk", "add", "--no-cache", *packages])
+        return
+
+    raise SystemExit(f"unsupported package manager for --install-deps: {package_manager}")
 
 
 def write_default_secrets_file() -> None:

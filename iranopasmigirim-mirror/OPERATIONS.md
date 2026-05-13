@@ -3,6 +3,9 @@
 This guide covers the full mirror workflow: registry bootstrap, producer
 installation, release configuration, and common operational checks.
 
+The shell helper now preflights command-specific dependencies and installs
+missing tools automatically when it can detect a supported package manager.
+
 ## 1. Working Directory
 
 Run all `setup.sh` commands from this repository root:
@@ -95,6 +98,10 @@ prerequisite/config check:
 If the default config does not exist, the helper creates
 `~/.config/iranopasmigirim-producer/config.toml` automatically.
 
+The helper checks for `python3`, `git`, `gpg`, and `httrack` and installs any
+missing producer prerequisite automatically when it can detect `apt-get`,
+`dnf`, `yum`, `pacman`, `zypper`, `apk`, or `brew`.
+
 If you already ran `./setup.sh registry ...` on this machine and are using the
 default config path, `registry_repo_url` is seeded automatically.
 
@@ -119,9 +126,13 @@ For a dedicated producer host, use the producer's built-in setup command:
 
 ```bash
 python3 pusher/mirror_and_push.py setup-system \
+  --install-deps \
   --registry-repo-url https://github.com/YOUR_USER/YOUR_REGISTRY_REPO \
   --signing-key 0xYOUR_LONG_KEY_ID
 ```
+
+The root `--install-deps` path supports `apt-get`, `dnf`, `yum`, `pacman`,
+`zypper`, and `apk`.
 
 Relevant files:
 
@@ -164,6 +175,9 @@ Standard verification:
 ```bash
 ./setup.sh verify
 ```
+
+`setup.sh dev` and `setup.sh verify` also preflight `node`, `npm`, and
+`python3` before they start work.
 
 Focused checks:
 

@@ -58,3 +58,19 @@ describe('setup.sh: registry command', () => {
     );
   });
 });
+
+describe('setup.sh: dependency management', () => {
+  it('detects supported package managers and can install missing prerequisites', () => {
+    assert.match(setupScript, /detect_package_manager\(\)/);
+    assert.match(setupScript, /for manager in apt-get dnf yum pacman zypper apk brew;/);
+    assert.match(setupScript, /apt-get install -y --no-install-recommends/);
+    assert.match(setupScript, /brew install "\$@"/);
+  });
+
+  it('preflights producer, registry, development, and verification dependencies', () => {
+    assert.match(setupScript, /ensure_command_dependencies "Producer setup" python3 git gpg httrack/);
+    assert.match(setupScript, /ensure_command_dependencies "Registry bootstrap" git python3 ssh/);
+    assert.match(setupScript, /ensure_command_dependencies "Development environment" node npm/);
+    assert.match(setupScript, /ensure_command_dependencies "Verification" node npm python3/);
+  });
+});

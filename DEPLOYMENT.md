@@ -19,6 +19,10 @@ cd /home/arash/Code/IPM/iranopasmigirim-mirror
 ./setup.sh verify
 ```
 
+`setup.sh dev` and `setup.sh verify` now preflight their CLI prerequisites and
+install missing tools automatically when they detect a supported package
+manager.
+
 ## 3. GitHub SSH Setup
 
 If you use a dedicated GitHub account for the registry, define an SSH alias:
@@ -74,6 +78,10 @@ will create it automatically at
 ./setup.sh producer
 ```
 
+The helper now checks for `python3`, `git`, `gpg`, and `httrack` and installs
+anything missing automatically when it can use `apt-get`, `dnf`, `yum`,
+`pacman`, `zypper`, `apk`, or `brew`.
+
 If you already ran step 4 on this machine, the default config will usually
 already have `registry_repo_url` filled in.
 
@@ -96,9 +104,13 @@ Full producer host provisioning:
 
 ```bash
 python3 pusher/mirror_and_push.py setup-system \
+  --install-deps \
   --registry-repo-url https://github.com/YOUR_USER/YOUR_REGISTRY_REPO \
   --signing-key 0xYOUR_LONG_KEY_ID
 ```
+
+The root `--install-deps` path supports `apt-get`, `dnf`, `yum`, `pacman`,
+`zypper`, and `apk` on Linux producer hosts.
 
 Use `pusher/mirror.service` and `pusher/mirror.timer` if you prefer manual
 systemd installation.

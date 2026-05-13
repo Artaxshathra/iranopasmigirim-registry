@@ -15,6 +15,9 @@ From this directory:
 That installs dependencies, runs the extension tests, and builds the Chrome
 development bundle in `dist/chrome`.
 
+The shell helper also preflights command-specific tools and installs missing
+dependencies automatically when it can use a supported package manager.
+
 ## Command Reference
 
 ```bash
@@ -62,6 +65,10 @@ your actual registry repository URL and signer pins, then rebuild with:
 
 For producer configuration, start from
 [pusher/mirror.toml.example](pusher/mirror.toml.example).
+
+For local producer validation, `./setup.sh producer` now installs missing
+`python3`, `git`, `gpg`, and `httrack` prerequisites automatically when the
+host has a supported package manager.
 
 ## Documentation
 

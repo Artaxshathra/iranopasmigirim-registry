@@ -82,11 +82,228 @@ Examples:
 EOF
 }
 
+PACKAGE_INDEX_REFRESHED=0
+
+command_exists() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+run_privileged() {
+  if [[ "$(id -u)" -eq 0 ]]; then
+    "$@"
+  elif command_exists sudo; then
+    sudo "$@"
+  else
+    die "Installing dependencies requires root or sudo: $*"
+  fi
+}
+
+detect_package_manager() {
+  local manager
+
+  for manager in apt-get dnf yum pacman zypper apk brew; do
+    if command_exists "$manager"; then
+      echo "$manager"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+package_names_for_tool() {
+  local manager="$1"
+  local tool="$2"
+
+  case "$manager:$tool" in
+    apt-get:python3) echo "python3" ;;
+    apt-get:git) echo "git" ;;
+    apt-get:gpg) echo "gnupg" ;;
+    apt-get:httrack) echo "httrack" ;;
+    apt-get:node) echo "nodejs" ;;
+    apt-get:npm) echo "npm" ;;
+    apt-get:ssh) echo "openssh-client" ;;
+    dnf:python3|yum:python3) echo "python3" ;;
+    dnf:git|yum:git) echo "git" ;;
+    dnf:gpg|yum:gpg) echo "gnupg2" ;;
+    dnf:httrack|yum:httrack) echo "httrack" ;;
+    dnf:node|yum:node) echo "nodejs" ;;
+    dnf:npm|yum:npm) echo "npm" ;;
+    dnf:ssh|yum:ssh) echo "openssh-clients" ;;
+    pacman:python3) echo "python" ;;
+    pacman:git) echo "git" ;;
+    pacman:gpg) echo "gnupg" ;;
+    pacman:httrack) echo "httrack" ;;
+    pacman:node) echo "nodejs" ;;
+    pacman:npm) echo "npm" ;;
+    pacman:ssh) echo "openssh" ;;
+    zypper:python3) echo "python3" ;;
+    zypper:git) echo "git" ;;
+    zypper:gpg) echo "gpg2" ;;
+    zypper:httrack) echo "httrack" ;;
+    zypper:node) echo "nodejs" ;;
+    zypper:npm) echo "npm" ;;
+    zypper:ssh) echo "openssh" ;;
+    apk:python3) echo "python3" ;;
+    apk:git) echo "git" ;;
+    apk:gpg) echo "gnupg" ;;
+    apk:httrack) echo "httrack" ;;
+    apk:node) echo "nodejs" ;;
+    apk:npm) echo "npm" ;;
+    apk:ssh) echo "openssh-client-default" ;;
+    brew:python3) echo "python" ;;
+    brew:git) echo "git" ;;
+    brew:gpg) echo "gnupg" ;;
+    brew:httrack) echo "httrack" ;;
+    brew:node|brew:npm) echo "node" ;;
+    brew:ssh) echo "openssh" ;;
+    *) return 1 ;;
+  esac
+}
+
+append_unique_package() {
+  local package_name="$1"
+  shift
+  local existing
+
+  for existing in "$@"; do
+    if [[ "$existing" == "$package_name" ]]; then
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+refresh_package_index() {
+  local manager="$1"
+
+  if [[ "$PACKAGE_INDEX_REFRESHED" -eq 1 ]]; then
+    return 0
+  fi
+
+  case "$manager" in
+    apt-get)
+      run_privileged apt-get update
+      ;;
+    dnf)
+      run_privileged dnf makecache -y
+      ;;
+    yum)
+      run_privileged yum makecache -y
+      ;;
+    pacman)
+      run_privileged pacman -Sy --noconfirm
+      ;;
+    zypper)
+      run_privileged zypper --non-interactive refresh
+      ;;
+    apk)
+      run_privileged apk update
+      ;;
+    brew)
+      brew update
+      ;;
+    *)
+      die "Unsupported package manager: $manager"
+      ;;
+  esac
+
+  PACKAGE_INDEX_REFRESHED=1
+}
+
+install_packages() {
+  local manager="$1"
+  shift
+
+  case "$manager" in
+    apt-get)
+      run_privileged apt-get install -y --no-install-recommends "$@"
+      ;;
+    dnf)
+      run_privileged dnf install -y "$@"
+      ;;
+    yum)
+      run_privileged yum install -y "$@"
+      ;;
+    pacman)
+      run_privileged pacman -S --needed --noconfirm "$@"
+      ;;
+    zypper)
+      run_privileged zypper --non-interactive install --no-recommends "$@"
+      ;;
+    apk)
+      run_privileged apk add --no-cache "$@"
+      ;;
+    brew)
+      brew install "$@"
+      ;;
+    *)
+      die "Unsupported package manager: $manager"
+      ;;
+  esac
+}
+
+install_missing_tools() {
+  local context="$1"
+  shift
+  local manager
+  local missing_tool
+  local package_name
+  local packages=()
+
+  manager="$(detect_package_manager)" || die "Missing required tools for $context: $*. Install them manually and rerun."
+
+  for missing_tool in "$@"; do
+    package_name="$(package_names_for_tool "$manager" "$missing_tool")" \
+      || die "No package mapping for $missing_tool on $manager"
+    if ! append_unique_package "$package_name" "${packages[@]}"; then
+      packages+=("$package_name")
+    fi
+  done
+
+  log_info "Installing missing dependencies for $context via $manager: ${packages[*]}"
+  refresh_package_index "$manager"
+  install_packages "$manager" "${packages[@]}"
+}
+
+ensure_command_dependencies() {
+  local context="$1"
+  shift
+  local tool
+  local missing_tools=()
+
+  for tool in "$@"; do
+    if command_exists "$tool"; then
+      log_step "$tool installed"
+    else
+      missing_tools+=("$tool")
+    fi
+  done
+
+  if [[ "${#missing_tools[@]}" -eq 0 ]]; then
+    return 0
+  fi
+
+  log_warn "$context is missing required tools: ${missing_tools[*]}"
+  install_missing_tools "$context" "${missing_tools[@]}"
+
+  for tool in "${missing_tools[@]}"; do
+    if ! command_exists "$tool"; then
+      die "Dependency installation completed but $tool is still unavailable"
+    fi
+    log_step "$tool installed"
+  done
+}
+
 cmd_dev() {
   local target="${1:-all}"
   local root="$SCRIPT_DIR"
 
   cd "$root"
+
+  log_info "Checking dependencies..."
+  ensure_command_dependencies "Development environment" node npm
 
   case "$target" in
     test)
@@ -183,6 +400,8 @@ cmd_registry() {
   fi
 
   log_header "Registry Setup for $owner/$repo"
+  log_info "Checking dependencies..."
+  ensure_command_dependencies "Registry bootstrap" git python3 ssh
   
   log_info "Step 1: Create GitHub repository"
   echo -e "${DIM}  1. Go to https://github.com/new${RESET}"
@@ -283,6 +502,8 @@ cmd_producer() {
 
   if [[ ! -f "$config_path" ]]; then
     log_header "Producer Config Bootstrap"
+    log_info "Checking dependencies..."
+    ensure_command_dependencies "Producer setup" python3 git gpg httrack
     log_info "Config not found; creating starter config..."
     python3 "$SCRIPT_DIR/pusher/mirror_and_push.py" --config "$config_path" init
     log_step "Starter config created"
@@ -295,12 +516,7 @@ cmd_producer() {
   log_header "Producer Server Setup"
   
   log_info "Checking dependencies..."
-  for tool in python3 git gpg httrack; do
-    if ! command -v "$tool" &> /dev/null; then
-      die "Missing required tool: $tool"
-    fi
-    log_step "$tool installed"
-  done
+  ensure_command_dependencies "Producer setup" python3 git gpg httrack
 
   log_info "Verifying producer script..."
   python3 -m py_compile "$SCRIPT_DIR/pusher/mirror_and_push.py"
@@ -368,6 +584,9 @@ cmd_verify() {
   log_header "Running verification"
 
   cd "$SCRIPT_DIR"
+
+  log_info "Checking dependencies..."
+  ensure_command_dependencies "Verification" node npm python3
 
   log_info "Installing dependencies..."
   npm install --silent

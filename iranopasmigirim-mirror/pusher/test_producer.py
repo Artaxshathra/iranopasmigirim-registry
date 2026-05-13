@@ -11,10 +11,13 @@ from mirror_and_push import (  # type: ignore
     Config,
     DEFAULT_CONFIG,
     current_head_sha,
+    detect_linux_package_manager,
     is_host_allowed,
     is_payment_url,
     is_stream_url,
+    maybe_install_deps,
     normalize_host,
+    package_names_for_tools,
     parse_request_doc,
     replace_config_assignment,
     rollback_delivery_checkout,
@@ -201,6 +204,46 @@ class ProducerRollbackTests(unittest.TestCase):
         with patch('mirror_and_push.run') as run_mock:
             rollback_delivery_checkout(Path('/tmp/repo'), 'abc123')
             self.assertEqual(run_mock.call_count, 2)
+
+
+class ProducerDependencyInstallTests(unittest.TestCase):
+    def test_detect_linux_package_manager_prefers_first_supported_option(self):
+        def fake_which(name):
+            if name == 'dnf':
+                return f'/usr/bin/{name}'
+            return None
+
+        with patch('mirror_and_push.shutil.which', side_effect=fake_which):
+            self.assertEqual(detect_linux_package_manager(), 'dnf')
+
+    def test_package_names_for_tools_maps_linux_package_names(self):
+        self.assertEqual(
+            package_names_for_tools('apt-get', ['python3', 'git', 'gpg', 'httrack']),
+            ['python3', 'git', 'gnupg', 'httrack'],
+        )
+        self.assertEqual(
+            package_names_for_tools('pacman', ['python3', 'gpg', 'git']),
+            ['python', 'gnupg', 'git'],
+        )
+
+    def test_maybe_install_deps_uses_pacman_when_available(self):
+        def fake_which(name):
+            if name == 'pacman':
+                return f'/usr/bin/{name}'
+            return None
+
+        with patch('mirror_and_push.shutil.which', side_effect=fake_which), \
+                patch('mirror_and_push.run') as run_mock:
+            maybe_install_deps()
+
+        self.assertEqual(run_mock.call_count, 2)
+        run_mock.assert_any_call(['pacman', '-Sy', '--noconfirm'])
+        run_mock.assert_any_call(['pacman', '-S', '--needed', '--noconfirm', 'python', 'git', 'gnupg', 'httrack'])
+
+    def test_maybe_install_deps_fails_without_supported_package_manager(self):
+        with patch('mirror_and_push.shutil.which', return_value=None):
+            with self.assertRaisesRegex(SystemExit, 'no supported Linux package manager'):
+                maybe_install_deps()
 
 
 if __name__ == '__main__':
