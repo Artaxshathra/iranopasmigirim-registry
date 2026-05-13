@@ -33,6 +33,10 @@ whitelist_hosts = [
   "bbc.com",
 ]
 
+# Defense-in-depth rewrites inside already-whitelisted sites.
+# These do not allow any extra sites. whitelist_hosts is the real allowlist.
+# They only rewrite known payment and stream/media links to a blocked page so
+# the mirror stays read-only even within allowed news sites.
 block_stream_extensions = [".m3u8", ".mpd", ".ism/manifest", ".f4m", ".ts"]
 block_payment_domains = [
   "zarinpal.com",
