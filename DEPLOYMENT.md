@@ -1,205 +1,125 @@
-# Deployment Checklists and Diagnostics
+# Deployment Guide (Simple & Reliable)
 
-Quick reference for setup, testing, and troubleshooting.
+This guide shows how to set up, test, and deploy the Mirror extension and producer with maximum clarity and minimum confusion.
 
 ---
 
-## Development Setup Checklist
+## 1. Local Development & Testing
 
+**Install dependencies and build:**
 ```bash
-# Clone and navigate
-git clone https://github.com/YOUR_FORK/iranopasmigirim-mirror.git
-cd iranopasmigirim-mirror
-
-# Run development build
 ./setup.sh dev
+```
+- Installs all dependencies
+- Runs all tests
+- Builds the Chrome extension (output: dist/chrome)
 
-# Load in browser
-# Chrome: chrome://extensions -> Load unpacked -> dist/chrome
-# Firefox: about:debugging -> Load Temporary Add-on -> dist/firefox/manifest.json
+**To run tests only:**
+```bash
+./setup.sh dev test
 ```
 
-✓ Tests pass  
-✓ Extension loads without errors  
-✓ Popup shows "Not configured" (expected)  
-
----
-
-## Quality Assurance Checklist
-
-Before committing or releasing:
-
+**To build for Firefox:**
 ```bash
-# Full verification
+./setup.sh dev firefox
+```
+
+**To verify everything (tests + build):**
+```bash
 ./setup.sh verify
 ```
 
-Expected output:
-- ✓ npm install: success
-- ✓ 80 extension tests: all passed
-- ✓ Producer Python syntax: valid
-- ✓ 14 producer tests: all passed
-- ✓ Chrome build: successful
-- ✓ Firefox build: successful
-
 ---
 
-## Registry Setup Checklist
+## 2. Registry Repository Setup (Manual + Script)
 
-Creating the central GitHub registry:
+**A. Create the registry repo on GitHub (manual):**
+1. Go to https://github.com/new
+2. Name: `YOUR-REGISTRY-REPO` (e.g., `iranopasmigirim-registry`)
+3. Description: Central mirror registry
+4. Visibility: Public
+5. Click "Create repository"
 
+**B. Initialize registry branches and config (script):**
 ```bash
-./setup.sh registry myusername iranopasmigirim-registry
+./setup.sh registry YOUR_GITHUB_USERNAME YOUR-REGISTRY-REPO
 ```
-
-Verify:
-- [ ] Repository created on GitHub
-- [ ] Branches exist: requests, registrations, approvals, deliveries
-- [ ] Registry config pushed to main
-- [ ] (Manual) Add repository to account profile
+- This will set up the required branches and config file in the repo.
 
 ---
 
-## Producer Setup Checklist
+## 3. Producer Server Setup
 
-Setting up the server that mirrors content:
+**A. Prerequisites (manual):**
+- Linux server (recommended)
+- Python 3.8+, git, gpg, httrack
 
-### Prerequisites
+Install dependencies:
 ```bash
-# Install dependencies
 sudo apt-get update
-sudo apt-get install -y python3 python3-pip git gpg httrack curl
-
-# GPG key setup
-gpg --gen-key
-# Save fingerprint for next step
+sudo apt-get install -y python3 python3-pip git gpg httrack
 ```
 
-### Setup
+**B. GPG Key (manual):**
 ```bash
-./setup.sh producer ~/.config/iranopasmigirim-producer/config.toml
+gpg --gen-key
+# Save the fingerprint for config
 ```
 
-Verify:
-- [ ] Config file created
-- [ ] GPG key fingerprint matches config
-- [ ] Dry run completed successfully
-- [ ] Test registry sync showed expected behavior
+**C. Configure producer (manual):**
+- Copy and edit the example config: `pusher/mirror.toml.example`
+- Set your registry repo URL and GPG fingerprint
 
-### Systemd Automation (Manual Step)
+**D. Test producer setup (script):**
+```bash
+./setup.sh producer /path/to/your/config.toml
+```
+- Checks dependencies, validates config, runs a dry-run
 
-See OPERATIONS.md Phase 2 Step 2.8 for timer configuration.
+**E. (Manual) Set up systemd timer for automation:**
+- See OPERATIONS.md for a sample systemd unit and timer
 
 ---
 
-## Extension Installation Checklist
+## 4. Extension Installation (Manual)
 
-Installing built extension in browser:
-
+**A. Build the extension:**
 ```bash
 ./setup.sh dev build
-./setup.sh install-ext dist/chrome
 ```
 
-Verify:
-- [ ] Extension appears in chrome://extensions
-- [ ] Extension ID matches release pins (if applicable)
-- [ ] No permission warnings
-- [ ] Popup loads without errors
+**B. Install in browser:**
+- **Chrome:**
+  1. Open `chrome://extensions`
+  2. Enable Developer mode
+  3. Click "Load unpacked"
+  4. Select `dist/chrome`
+- **Firefox:**
+  1. Open `about:debugging`
+  2. Click "This Firefox"
+  3. Click "Load Temporary Add-on"
+  4. Select `dist/firefox/manifest.json`
 
 ---
 
-## Diagnostic Commands
+## 5. Troubleshooting & Diagnostics
 
-Test quick status:
-
-```bash
-# Verify everything works
-./setup.sh verify
-
-# Run just tests (no build)
-./setup.sh dev test
-
-# Run just Python producer tests
-python3 -m unittest -v pusher/test_producer.py
-
-# Check extension syntax
-python3 -m py_compile pusher/mirror_and_push.py
-
-# Quick Firefox check
-./setup.sh dev firefox
-
-# Check producer config
-grep -E "registry_repo|signing_key|whitelist_hosts" config.toml
-```
+- **Verify everything:** `./setup.sh verify`
+- **Clean build:** `./setup.sh clean`
+- **Check Python syntax:** `python3 -m py_compile pusher/mirror_and_push.py`
+- **Run producer tests:** `python3 -m unittest -v pusher/test_producer.py`
+- **Check extension build:** `cat dist/chrome/manifest.json | python3 -m json.tool`
 
 ---
 
-## Common Issues
+## 6. Common Issues
 
-### Extension doesn't load
-```bash
-# Rebuild
-./setup.sh dev chrome
-
-# Check for errors
-cat dist/chrome/manifest.json | python3 -m json.tool
-```
-
-### Tests fail
-```bash
-# Full verification
-./setup.sh verify
-
-# Just JS tests
-npm test
-
-# Just producer tests
-python3 -m unittest -v pusher/test_producer.py
-```
-
-### Producer won't run
-```bash
-# Check Python syntax
-python3 -m py_compile pusher/mirror_and_push.py
-
-# Check dependencies
-python3 -c "import requests, cryptography; print('OK')"
-
-# Check httrack installed
-which httrack
-```
-
-### Registry sync issues
-```bash
-# Check git config
-git config --global user.email
-git config --global user.name
-
-# Check GitHub token
-echo $GITHUB_TOKEN
-```
+- **Extension doesn't load:** Rebuild and check for errors in manifest.json
+- **Tests fail:** Run `./setup.sh verify` and check output
+- **Producer won't run:** Check Python syntax, dependencies, and config
+- **Registry sync issues:** Check your git config and GitHub token
 
 ---
 
-## Performance Notes
-
-- First build takes ~30 seconds (npm install)
-- Rebuilds take ~3 seconds
-- Full test suite (80 JS + 14 producer tests) takes ~10 seconds
-- Producer dry run takes ~5 seconds
-- Production mirror of typical site takes 2-5 minutes
-
----
-
-## Logs and Output
-
-- Extension tests: `npm test`
-- Producer tests: `python3 -m unittest -v pusher/test_producer.py`
-- Producer running: Check systemd journal `journalctl -u iranopasmigirim-producer.timer -f`
-- Extension sync: Check browser DevTools -> Application -> IndexedDB
-
----
-
-**Version:** 0.2.0
-**Last Updated:** May 11, 2026
+**Version:** 0.2.0  
+**Last Updated:** May 13, 2026
