@@ -1,4 +1,5 @@
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -13,6 +14,7 @@ from mirror_and_push import (  # type: ignore
     current_head_sha,
     detect_linux_package_manager,
     ensure_pip_for_active_python,
+    ensure_repo_checkout,
     has_toml_parser,
     install_tomli_for_active_python,
     is_host_allowed,
@@ -22,6 +24,7 @@ from mirror_and_push import (  # type: ignore
     normalize_host,
     package_names_for_tools,
     parse_request_doc,
+    producer_lock_path,
     replace_config_assignment,
     rollback_delivery_checkout,
     sanitize_html_text,
@@ -164,6 +167,69 @@ class ProducerParsingTests(unittest.TestCase):
         self.assertNotIn(' onerror=', out.lower())
         self.assertIn('/__mirror_blocked.html?reason=active-content', out)
         self.assertIn('/__mirror_blocked.html?reason=form', out)
+
+
+class ProducerCheckoutTests(unittest.TestCase):
+    def make_cfg(self) -> Config:
+        return Config(
+            registry_repo_path=Path('/tmp/producer-data/registry'),
+            registry_repo_url='https://github.com/example/registry',
+            registry_remote='origin',
+            registry_branch='registrations',
+            requests_subdir='requests',
+            status_subdir='status',
+            user_repos_root=Path('/tmp/producer-data/users'),
+            delivery_subdir='',
+            default_delivery_branch='content',
+            default_entry_path='index.html',
+            interval_minutes=15,
+            max_requests_per_run=10,
+            signing_key='0xABCDEF1234567890',
+            gpg_passphrase_env='GPG_PASSPHRASE',
+            user_agent='ua',
+            exclude_patterns=[],
+            min_files=1,
+            max_files=2000,
+            whitelist_hosts=['bbc.com'],
+            maintenance_interval_hours=24,
+            prune_after_days=30,
+            block_stream_extensions=[],
+            block_payment_domains=[],
+        )
+
+    def test_producer_lock_path_lives_next_to_registry_checkout(self):
+        cfg = self.make_cfg()
+        lock_path = producer_lock_path(cfg)
+
+        self.assertEqual(lock_path, Path('/tmp/producer-data/.registry.mirror_producer.lock'))
+        self.assertNotEqual(lock_path.parent, cfg.registry_repo_path)
+
+    def test_ensure_repo_checkout_cleans_stale_lock_only_directory(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo_path = Path(tmpdir) / 'registry'
+            repo_path.mkdir()
+            stale_lock = repo_path / '.mirror_producer.lock'
+            stale_lock.write_text('1234', encoding='utf-8')
+
+            with patch('mirror_and_push.run') as run_mock, \
+                    patch('mirror_and_push.subprocess.run') as subprocess_run_mock:
+                subprocess_run_mock.return_value.returncode = 0
+                ensure_repo_checkout('https://github.com/example/registry', repo_path, 'registrations')
+
+            self.assertFalse(stale_lock.exists())
+            run_mock.assert_any_call(['git', 'clone', 'https://github.com/example/registry', str(repo_path)])
+
+    def test_ensure_repo_checkout_rejects_non_empty_non_git_directory(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo_path = Path(tmpdir) / 'registry'
+            repo_path.mkdir()
+            (repo_path / 'README.txt').write_text('not a checkout', encoding='utf-8')
+
+            with patch('mirror_and_push.run') as run_mock:
+                with self.assertRaisesRegex(SystemExit, 'not a git checkout and is not empty'):
+                    ensure_repo_checkout('https://github.com/example/registry', repo_path, 'registrations')
+
+            run_mock.assert_not_called()
 
 
 class ProducerRollbackTests(unittest.TestCase):

@@ -61,7 +61,7 @@ max_requests_per_run = 10
 # this producer host. Find it with:
 #   gpg --list-secret-keys --keyid-format LONG
 # Copy the long id from the `sec` line, for example:
-#   sec   ed25519/DD13EC3368AA05D1 ...  →  signing_key = "0xDD13EC3368AA05D1"
+#   sec   ed25519/DD13EC3368AA05D1 ... -> signing_key = "0xDD13EC3368AA05D1"
 signing_key = "YOUR_SIGNING_KEY_ID_HERE"
 gpg_passphrase_env = "GPG_PASSPHRASE"
 
@@ -425,9 +425,30 @@ def user_repo_checkout_dir(cfg: Config, user_repo_url: str) -> Path:
     return cfg.user_repos_root / safe
 
 
+def producer_lock_path(cfg: Config) -> Path:
+    return cfg.registry_repo_path.parent / f".{cfg.registry_repo_path.name}.mirror_producer.lock"
+
+
+def checkout_dir_contains_only_stale_lock(repo_path: Path) -> bool:
+    try:
+        children = list(repo_path.iterdir())
+    except OSError:
+        return False
+    return len(children) == 1 and children[0].name == ".mirror_producer.lock" and children[0].is_file()
+
+
 def ensure_repo_checkout(repo_url: str, repo_path: Path, branch: str, remote: str = "origin") -> None:
     repo_path.parent.mkdir(parents=True, exist_ok=True)
     if not (repo_path / ".git").is_dir():
+        if repo_path.exists() and not repo_path.is_dir():
+            raise SystemExit(f"checkout path exists and is not a directory: {repo_path}")
+        if repo_path.is_dir() and checkout_dir_contains_only_stale_lock(repo_path):
+            (repo_path / ".mirror_producer.lock").unlink()
+        if repo_path.is_dir() and any(repo_path.iterdir()):
+            raise SystemExit(
+                f"checkout path exists but is not a git checkout and is not empty: {repo_path}. "
+                "Move it aside or remove it before rerunning."
+            )
         run(["git", "clone", repo_url, str(repo_path)])
 
     run(["git", "remote", "set-url", remote, repo_url], cwd=repo_path)
@@ -1208,7 +1229,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 
 def cmd_run_once(args: argparse.Namespace) -> int:
     cfg = load_config(Path(args.config))
-    lock_path = cfg.registry_repo_path / ".mirror_producer.lock"
+    lock_path = producer_lock_path(cfg)
     lock = acquire_lock(lock_path)
     advisory_safety_note()
     try:
@@ -1219,7 +1240,7 @@ def cmd_run_once(args: argparse.Namespace) -> int:
 
 def cmd_daemon(args: argparse.Namespace) -> int:
     cfg = load_config(Path(args.config))
-    lock_path = cfg.registry_repo_path / ".mirror_producer.lock"
+    lock_path = producer_lock_path(cfg)
     lock = acquire_lock(lock_path)
     advisory_safety_note()  # print once at daemon start, not every cycle
     try:
