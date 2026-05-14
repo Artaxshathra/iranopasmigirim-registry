@@ -310,6 +310,19 @@ This list lives only on the producer host. The extension does not duplicate
 it; requests for non-whitelisted hosts are rejected by the producer with
 status `rejected` and never produce any delivery commit.
 
+### Extension request packages
+
+The extension does not have GitHub write credentials. Clicking **Create request
+package** only prepares the request JSON and ownership challenge text.
+Operators must commit those two files manually to GitHub:
+
+- request JSON: registry repo, `registrations` branch, `requests/<id>.json`
+- ownership proof: delivery repo, `requests` branch, `_mirror/challenges/<id>.txt`
+
+Until the request JSON exists on the registry branch, the producer correctly
+prints `no requests found`. The popup state stays `not submitted` until
+**Refresh state** can see that request file remotely.
+
 ### robots.txt bypass
 
 The producer runs `httrack` with `--robots=0`, which disables robots.txt

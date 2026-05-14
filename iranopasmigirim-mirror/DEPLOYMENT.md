@@ -214,6 +214,20 @@ Install manually:
 - Chrome: `chrome://extensions` -> Developer mode -> Load unpacked -> `dist/chrome`
 - Firefox: `about:debugging` -> This Firefox -> Load Temporary Add-on -> `dist/firefox/manifest.json`
 
+For local end-to-end testing, set the delivery repo URL once in the popup. The
+repo URL and latest requested URL are saved in extension storage until you
+change them.
+
+Clicking **Create request package** does not push to GitHub. It prepares two
+files that you must commit manually:
+
+- request JSON to the registry repo on the `registrations` branch
+- ownership challenge text to the delivery repo on the `requests` branch
+
+The producer will keep printing `no requests found` until the first file exists
+on the registry `registrations` branch. After both commits are pushed, click
+**Refresh state** in the popup.
+
 ## 7. Useful Diagnostics
 
 ```bash

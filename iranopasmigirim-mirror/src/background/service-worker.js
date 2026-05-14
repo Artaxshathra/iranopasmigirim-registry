@@ -187,6 +187,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           const draft = await getLocal(REGISTRATION_KEY);
           if (!draft) return { ok: false, error: 'No registration draft found' };
 
+          const registryRequest = await fetchJsonFromBranch(
+            draft.registry.repoUrl,
+            draft.registry.requestPath,
+            draft.registry.branch,
+          );
+
           const registryStatus = await fetchJsonFromBranch(
             draft.registry.repoUrl,
             draft.registry.statusPath,
@@ -204,7 +210,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             if (!(e && e.status === 404)) throw e;
           }
 
-          const nextDraft = mergeRegistrationRemoteState(draft, registryStatus, proofText);
+          const nextDraft = mergeRegistrationRemoteState(
+            draft,
+            registryStatus,
+            proofText,
+            Date.now(),
+            registryRequest,
+          );
           await setLocal({ registrationDraft: nextDraft, userRepoUrl: nextDraft.userRepoUrl });
           return {
             ok: true,

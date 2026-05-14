@@ -52,6 +52,10 @@ init().catch((e) => {
 
 async function init() {
   const userRepoUrl = await getStoredRepoUrl();
+  const requestedUrl = await getStoredRequestedUrl();
+  if (requestedUrl) {
+    els.requestedUrlInput.value = requestedUrl;
+  }
   currentRepoUrl = userRepoUrl;
   if (userRepoUrl) {
     showConfiguredUi(userRepoUrl);
@@ -82,6 +86,15 @@ function getStoredRepoUrl() {
   return new Promise((resolve) => {
     chrome.storage.local.get('userRepoUrl', (result) => {
       const value = result && result.userRepoUrl ? String(result.userRepoUrl).trim() : '';
+      resolve(value || null);
+    });
+  });
+}
+
+function getStoredRequestedUrl() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get('requestedUrl', (result) => {
+      const value = result && result.requestedUrl ? String(result.requestedUrl).trim() : '';
       resolve(value || null);
     });
   });
@@ -153,6 +166,7 @@ els.createRequestBtn.addEventListener('click', async () => {
 
   els.createRequestBtn.disabled = true;
   try {
+    await setStorage({ requestedUrl });
     const resp = await sendMessage({
       type: 'registration-create',
       payload: {
@@ -166,13 +180,18 @@ els.createRequestBtn.addEventListener('click', async () => {
     currentRegistration = resp.draft || null;
     renderRegistration(resp.draft, resp.instructions);
     els.registrationMessage.hidden = false;
-    els.registrationMessage.textContent = 'Request package created. Complete both commits, then refresh state.';
+    els.registrationMessage.textContent = 'Request package prepared locally. It is not submitted until both files below are committed to GitHub.';
   } catch (e) {
     els.registrationError.hidden = false;
     els.registrationError.textContent = (e && e.message) || String(e);
   } finally {
     els.createRequestBtn.disabled = false;
   }
+});
+
+els.requestedUrlInput.addEventListener('change', async () => {
+  const requestedUrl = String(els.requestedUrlInput.value || '').trim();
+  await setStorage({ requestedUrl });
 });
 
 els.refreshRegistrationBtn.addEventListener('click', async () => {
@@ -299,7 +318,7 @@ function renderRegistration(draft, instructions) {
   }
 
   const regState = draft.registry && draft.registry.state ? draft.registry.state : 'pending';
-  els.registryState.textContent = regState;
+  els.registryState.textContent = labelForRegistryState(regState);
   els.ownershipState.textContent = draft.ownership && draft.ownership.verified ? 'verified' : 'not verified';
 
   if (draft.delivery && draft.delivery.ready) {
@@ -316,6 +335,18 @@ function renderRegistration(draft, instructions) {
   if (instructions && instructions.step2) {
     els.step2Meta.textContent = `${instructions.step2.repoUrl} @ ${instructions.step2.branch} → ${instructions.step2.path}`;
     els.step2Content.value = instructions.step2.content || '';
+  }
+}
+
+function labelForRegistryState(state) {
+  switch (state) {
+    case 'draft': return 'not submitted';
+    case 'submitted': return 'submitted';
+    case 'pending': return 'processing';
+    case 'approved': return 'approved';
+    case 'rejected': return 'rejected';
+    case 'error': return 'error';
+    default: return state || 'not started';
   }
 }
 

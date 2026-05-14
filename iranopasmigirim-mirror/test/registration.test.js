@@ -92,6 +92,43 @@ describe('registration: remote-state merge', () => {
     assert.equal(updated.delivery.producerFingerprint, 'AABBCCDDEEFF00112233445566778899AABBCCDD');
   });
 
+  it('marks registry submitted when the request file exists remotely', () => {
+    const draft = createRegistrationDraft({
+      userRepoUrl: 'https://github.com/example/user-mirror',
+      requestedUrl: 'https://bbc.com/news',
+      now: 1700000000000,
+    });
+
+    const updated = mergeRegistrationRemoteState(
+      draft,
+      null,
+      null,
+      1700000005000,
+      JSON.parse(buildCommitInstructions(draft).step1.content),
+    );
+
+    assert.equal(updated.registry.state, 'submitted');
+    assert.equal(updated.registry.stateReason, 'request file found in registry');
+  });
+
+  it('marks registry error when the remote request file does not match the draft', () => {
+    const draft = createRegistrationDraft({
+      userRepoUrl: 'https://github.com/example/user-mirror',
+      requestedUrl: 'https://bbc.com/news',
+    });
+
+    const updated = mergeRegistrationRemoteState(
+      draft,
+      null,
+      null,
+      1700000005000,
+      { requestId: draft.requestId, userRepoUrl: 'https://github.com/other/repo' },
+    );
+
+    assert.equal(updated.registry.state, 'error');
+    assert.equal(updated.registry.stateReason, 'registry request file does not match local draft');
+  });
+
   it('keeps ownership unverified when challenge mismatch', () => {
     const draft = createRegistrationDraft({
       userRepoUrl: 'https://github.com/example/user-mirror',

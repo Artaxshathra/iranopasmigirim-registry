@@ -132,13 +132,41 @@ export function buildCommitInstructions(draft) {
   };
 }
 
-export function mergeRegistrationRemoteState(draft, registryStatus, proofText, now = Date.now()) {
+function registryRequestMatchesDraft(draft, registryRequest) {
+  if (!registryRequest || typeof registryRequest !== 'object') return false;
+  return registryRequest.requestId === draft.requestId
+    && registryRequest.userRepoUrl === draft.userRepoUrl
+    && registryRequest.requestedUrl === draft.requestedUrl
+    && registryRequest.siteHost === draft.siteHost;
+}
+
+export function mergeRegistrationRemoteState(
+  draft,
+  registryStatus,
+  proofText,
+  now = Date.now(),
+  registryRequest = null,
+) {
   const next = {
     ...draft,
     ownership: { ...draft.ownership },
     registry: { ...draft.registry },
     delivery: { ...draft.delivery },
   };
+
+  if (registryRequest) {
+    if (registryRequestMatchesDraft(draft, registryRequest)) {
+      if (next.registry.state === 'draft') {
+        next.registry.state = 'submitted';
+        next.registry.stateReason = 'request file found in registry';
+      }
+      next.registry.updatedAt = now;
+    } else {
+      next.registry.state = 'error';
+      next.registry.stateReason = 'registry request file does not match local draft';
+      next.registry.updatedAt = now;
+    }
+  }
 
   const proofMatches = typeof proofText === 'string' && proofText.trim() === draft.ownership.nonce;
   if (proofMatches) {
