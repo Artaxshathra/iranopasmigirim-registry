@@ -111,4 +111,10 @@ describe('setup.sh: producer command surface', () => {
     assert.match(setupScript, /run_privileged systemctl status mirror\.timer/);
     assert.match(setupScript, /run_privileged journalctl -u mirror\.service -n "\$lines" --no-pager/);
   });
+
+  it('fails fast on merged subcommand-and-flag typos', () => {
+    assert.match(setupScript, /\^\(doctor\|run-once\|daemon\|setup-system\|status\|logs\)--/);
+    assert.match(setupScript, /did you mean to put a space before the flag\?/);
+    assert.match(setupScript, /unknown producer subcommand or misplaced arguments/);
+  });
 });

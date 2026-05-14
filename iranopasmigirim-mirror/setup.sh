@@ -804,6 +804,14 @@ cmd_producer() {
       producer_command_usage
       ;;
     *)
+      if [[ "$action" =~ ^(doctor|run-once|daemon|setup-system|status|logs)-- ]]; then
+        producer_command_usage
+        die "unknown producer subcommand: $action (did you mean to put a space before the flag?)"
+      fi
+      if [[ $# -gt 1 ]]; then
+        producer_command_usage
+        die "unknown producer subcommand or misplaced arguments: $*"
+      fi
       cmd_producer_doctor "${1:-$HOME/.config/iranopasmigirim-producer/config.toml}"
       ;;
   esac
