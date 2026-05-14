@@ -33,6 +33,8 @@ export const ALLOW_UNPINNED_SIGNATURES = false;
 // Request-response protocol constants.
 export const USER_REPO_PLACEHOLDER = 'https://github.com/username/your-mirror-repo';
 export const REGISTRY_REPO_URL = 'https://github.com/Artaxshathra/iranopasmigirim-registry';
+export const DEFAULT_USER_REPO_URL = '';
+export const REGISTRATION_API_ENDPOINT = '';
 export const REGISTRY_BRANCH = 'registrations';
 export const REQUESTS_BRANCH = 'requests';
 export const CONTENT_BRANCH = 'content';

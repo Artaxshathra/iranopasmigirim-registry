@@ -1,4 +1,4 @@
-import { SERVE_PATH } from '../config.js';
+import { DEFAULT_USER_REPO_URL, SERVE_PATH } from '../config.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -25,7 +25,6 @@ const els = {
   resetStorageBtn: $('reset-storage-btn'),
 
   registrationSection: $('registration-section'),
-  githubTokenInput: $('github-token-input'),
   requestedUrlInput: $('requested-url-input'),
   createRequestBtn: $('create-request-btn'),
   refreshRegistrationBtn: $('refresh-registration-btn'),
@@ -45,7 +44,6 @@ els.openSite.href = chrome.runtime.getURL(`${SERVE_PATH}index.html`);
 let lastFullStats = { fileCount: 0, bytes: 0 };
 let currentRepoUrl = null;
 let currentRegistration = null;
-let hasStoredGitHubToken = false;
 
 init().catch((e) => {
   console.error('[popup] init failed', e && e.message);
@@ -55,16 +53,14 @@ init().catch((e) => {
 async function init() {
   const userRepoUrl = await getStoredRepoUrl();
   const requestedUrl = await getStoredRequestedUrl();
-  hasStoredGitHubToken = await getHasStoredGitHubToken();
-  if (hasStoredGitHubToken) {
-    els.githubTokenInput.placeholder = 'Saved token will be used';
-  }
+  const defaultRepoUrl = String(DEFAULT_USER_REPO_URL || '').trim();
+  const effectiveRepoUrl = userRepoUrl || defaultRepoUrl || null;
   if (requestedUrl) {
     els.requestedUrlInput.value = requestedUrl;
   }
-  currentRepoUrl = userRepoUrl;
-  if (userRepoUrl) {
-    showConfiguredUi(userRepoUrl);
+  currentRepoUrl = effectiveRepoUrl;
+  if (effectiveRepoUrl) {
+    showConfiguredUi(effectiveRepoUrl, { fromDefault: !userRepoUrl && Boolean(defaultRepoUrl) });
     await loadRegistrationState();
     requestStatusUpdate();
     return;
@@ -73,12 +69,12 @@ async function init() {
   showUnconfiguredUi();
 }
 
-function showConfiguredUi(repoUrl) {
+function showConfiguredUi(repoUrl, options = {}) {
   els.configSection.hidden = true;
   els.statusSection.hidden = false;
   els.registrationSection.hidden = false;
   els.repoUrlInput.value = repoUrl;
-  els.repoSource.textContent = repoUrl;
+  els.repoSource.textContent = options.fromDefault ? 'configured mirror' : repoUrl;
 }
 
 function showUnconfiguredUi() {
@@ -102,14 +98,6 @@ function getStoredRequestedUrl() {
     chrome.storage.local.get('requestedUrl', (result) => {
       const value = result && result.requestedUrl ? String(result.requestedUrl).trim() : '';
       resolve(value || null);
-    });
-  });
-}
-
-function getHasStoredGitHubToken() {
-  return new Promise((resolve) => {
-    chrome.storage.local.get('githubToken', (result) => {
-      resolve(Boolean(result && result.githubToken));
     });
   });
 }
@@ -153,7 +141,7 @@ els.repoUrlSaveBtn.addEventListener('click', async () => {
     currentRepoUrl = url;
     showConfiguredUi(url);
     els.configMessage.hidden = false;
-    els.configMessage.textContent = 'Saved. You can now create a registration request.';
+    els.configMessage.textContent = 'Saved. You can now request a website.';
     hideRegistrationMessages();
     await loadRegistrationState();
     requestStatusUpdate();
@@ -169,7 +157,7 @@ els.createRequestBtn.addEventListener('click', async () => {
 
   if (!currentRepoUrl) {
     els.registrationError.hidden = false;
-    els.registrationError.textContent = 'Configure your GitHub repo first.';
+    els.registrationError.textContent = 'This extension build is missing its mirror destination. Ask the provider for a configured build.';
     return;
   }
   if (!requestedUrl) {
@@ -178,23 +166,9 @@ els.createRequestBtn.addEventListener('click', async () => {
     return;
   }
 
-  const githubToken = String(els.githubTokenInput.value || '').trim();
-  if (!githubToken && !hasStoredGitHubToken) {
-    els.registrationError.hidden = false;
-    els.registrationError.textContent = 'Paste a GitHub token once so the extension can submit the request automatically.';
-    return;
-  }
-
   els.createRequestBtn.disabled = true;
   try {
-    const storageUpdate = { requestedUrl };
-    if (githubToken) storageUpdate.githubToken = githubToken;
-    await setStorage(storageUpdate);
-    if (githubToken) {
-      hasStoredGitHubToken = true;
-      els.githubTokenInput.value = '';
-      els.githubTokenInput.placeholder = 'Saved token will be used';
-    }
+    await setStorage({ requestedUrl });
     const resp = await sendMessage({
       type: 'registration-submit',
       payload: {
@@ -208,7 +182,7 @@ els.createRequestBtn.addEventListener('click', async () => {
     currentRegistration = resp.draft || null;
     renderRegistration(resp.draft, resp.instructions);
     els.registrationMessage.hidden = false;
-    els.registrationMessage.textContent = 'Submitted to GitHub. The producer will process it on its next run.';
+    els.registrationMessage.textContent = 'Request sent. The mirror will update after it is approved.';
   } catch (e) {
     els.registrationError.hidden = false;
     els.registrationError.textContent = (e && e.message) || String(e);

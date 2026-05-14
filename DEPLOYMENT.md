@@ -199,6 +199,8 @@ Before building a release for users, update
 `iranopasmigirim-mirror/src/config.js` with:
 
 - the real registry repo URL
+- the default delivery repo URL
+- the HTTPS request service endpoint
 - the signer fingerprint list
 - the signer public key block list
 
@@ -208,20 +210,20 @@ Then build:
 ./setup.sh dev build
 ```
 
-For local end-to-end testing, load
-`iranopasmigirim-mirror/dist/chrome` as an unpacked extension, then set the
-delivery repo URL once in the popup. The repo URL and latest requested URL are
-saved in extension storage until you change them.
+For a configured release, load `iranopasmigirim-mirror/dist/chrome` as an
+unpacked extension and the user only enters the website URL, then clicks
+**Request website**. The user does not need a GitHub account, token, repo URL,
+commit, or branch knowledge.
 
-Clicking **Create request package** does not push to GitHub. It prepares two
-files that you must commit manually:
+The configured request service writes both registration files automatically:
 
 - request JSON to the registry repo on the `registrations` branch
 - ownership challenge text to the delivery repo on the `requests` branch
 
-The producer will keep printing `no requests found` until the first file exists
-on the registry `registrations` branch. After both commits are pushed, click
-**Refresh state** in the popup.
+The producer will keep printing `no requests found` until the request service
+creates the request JSON on the registry `registrations` branch. If the release
+is not configured with a default delivery repo and request endpoint, the popup
+shows setup as an operator/developer problem, not a normal user task.
 
 ## 7. Diagnostics
 

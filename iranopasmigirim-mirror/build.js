@@ -9,8 +9,10 @@
 import * as esbuild from 'esbuild';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname));
+const CONFIG = await import(pathToFileURL(path.join(ROOT, 'src/config.js')).href);
 
 const TARGETS = {
   chrome:  { manifest: 'manifest.json',         out: 'dist/chrome'  },
@@ -55,8 +57,10 @@ async function buildOne(target) {
     legalComments: 'inline',
   });
 
-  // Stage the manifest.
-  await fs.copyFile(path.join(ROOT, cfg.manifest), path.join(out, 'manifest.json'));
+  // Stage the manifest, adding the request service origin when configured.
+  const manifest = JSON.parse(await fs.readFile(path.join(ROOT, cfg.manifest), 'utf8'));
+  injectRegistrationEndpointAccess(manifest);
+  await fs.writeFile(path.join(out, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
 
   // Stage popup HTML + CSS verbatim — esbuild doesn't process them.
   await fs.copyFile(
@@ -83,6 +87,50 @@ async function buildOne(target) {
   // Read manifest back to surface the version + name in the build log.
   const m = JSON.parse(await fs.readFile(path.join(out, 'manifest.json'), 'utf8'));
   console.log(`[build:${target}] ${m.name} v${m.version} → ${cfg.out}/`);
+}
+
+function injectRegistrationEndpointAccess(manifest) {
+  const origin = registrationEndpointOrigin();
+  if (!origin) return;
+
+  const hostPattern = `${origin}/*`;
+  if (manifest.manifest_version === 3) {
+    manifest.host_permissions = unique([...(manifest.host_permissions || []), hostPattern]);
+    const csp = manifest.content_security_policy && manifest.content_security_policy.extension_pages;
+    if (csp) {
+      manifest.content_security_policy.extension_pages = addConnectSrcOrigin(csp, origin);
+    }
+  } else {
+    manifest.permissions = unique([...(manifest.permissions || []), hostPattern]);
+    if (manifest.content_security_policy) {
+      manifest.content_security_policy = addConnectSrcOrigin(manifest.content_security_policy, origin);
+    }
+  }
+}
+
+function registrationEndpointOrigin() {
+  const endpoint = String(CONFIG.REGISTRATION_API_ENDPOINT || '').trim();
+  if (!endpoint) return '';
+  const parsed = new URL(endpoint);
+  if (parsed.protocol !== 'https:') {
+    throw new Error('REGISTRATION_API_ENDPOINT must use https');
+  }
+  return parsed.origin;
+}
+
+function addConnectSrcOrigin(csp, origin) {
+  const parts = String(csp).split(';').map((part) => part.trim()).filter(Boolean);
+  const index = parts.findIndex((part) => part.startsWith('connect-src '));
+  if (index === -1) return `${parts.join('; ')}; connect-src 'self' ${origin}`;
+
+  const tokens = parts[index].split(/\s+/);
+  if (!tokens.includes(origin)) tokens.push(origin);
+  parts[index] = tokens.join(' ');
+  return parts.join('; ');
+}
+
+function unique(values) {
+  return [...new Set(values)];
 }
 
 async function main() {

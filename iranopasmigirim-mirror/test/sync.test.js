@@ -54,7 +54,7 @@ describe('sync: configured repo status reconciliation', () => {
   it('clears the stale missing-repo error once a repo is configured', () => {
     const next = reconcileStatusWithConfiguredRepo({
       state: 'error',
-      lastError: 'Mirror repo URL not configured. Set it in the extension popup.',
+      lastError: 'Mirror destination is not configured for this extension build.',
       progress: { done: 0, total: 0 },
       lastSyncAt: 0,
     }, 'https://github.com/example/repo');

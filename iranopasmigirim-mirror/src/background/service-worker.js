@@ -14,13 +14,14 @@ import {
   runUserRecovery,
 } from './sync.js';
 import { serve } from './serve.js';
-import { commitTextFileToBranch, fetchJsonFromBranch, fetchTextFromBranch } from './github.js';
+import { fetchJsonFromBranch, fetchTextFromBranch } from './github.js';
 import {
   buildCommitInstructions,
   createRegistrationDraft,
   mergeRegistrationRemoteState,
 } from './registration.js';
-import { POLL_INTERVAL_MINUTES, SERVE_PATH } from '../config.js';
+import { submitRegistrationViaEndpoint } from './registration-api.js';
+import { POLL_INTERVAL_MINUTES, REGISTRATION_API_ENDPOINT, SERVE_PATH } from '../config.js';
 
 const ALARM_NAME = 'mirror-poll';
 const EXTENSION_ORIGIN = new URL(chrome.runtime.getURL('/')).origin;
@@ -171,9 +172,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const payload = msg && msg.payload ? msg.payload : {};
       Promise.resolve()
         .then(async () => {
-          const token = await getLocal('githubToken');
-          if (!token) throw new Error('Save a GitHub token first so the extension can submit the request.');
-
           const existingDraft = await getLocal(REGISTRATION_KEY);
           const requestedRepoUrl = String(payload.userRepoUrl || '').trim();
           const requestedWebsiteUrl = String(payload.requestedUrl || '').trim();
@@ -192,22 +190,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             requestedUrl: draft.requestedUrl,
           });
 
-          await commitTextFileToBranch({
-            repoUrl: instructions.step2.repoUrl,
-            branch: instructions.step2.branch,
-            path: instructions.step2.path,
-            content: instructions.step2.content,
-            message: instructions.step2.commitMessage,
-            token,
-          });
-          await commitTextFileToBranch({
-            repoUrl: instructions.step1.repoUrl,
-            branch: instructions.step1.branch,
-            path: instructions.step1.path,
-            content: instructions.step1.content,
-            message: instructions.step1.commitMessage,
-            token,
-          });
+          if (String(REGISTRATION_API_ENDPOINT || '').trim()) {
+            await submitRegistrationViaEndpoint({
+              endpoint: REGISTRATION_API_ENDPOINT,
+              draft,
+              instructions,
+            });
+          } else {
+            throw new Error('This extension build is missing its request service. Ask the provider to publish a configured build.');
+          }
 
           const nextDraft = mergeRegistrationRemoteState(
             draft,

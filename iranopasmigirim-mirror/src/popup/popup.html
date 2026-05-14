@@ -13,17 +13,22 @@
 
   <!-- Configuration section (shown if repo URL not set) -->
   <section class="config-card" id="config-section" hidden>
-    <h2>Setup</h2>
-    <p class="help-text">Enter your GitHub repo URL where the producer pushes mirrored content:</p>
-    <input
-      type="text"
-      id="repo-url-input"
-      class="repo-url-input"
-      placeholder="https://github.com/username/mirror-repo"
-      spellcheck="false"
-    />
-    <p class="example-text">Examples: <code>https://github.com/your-user/your-repo</code> or <code>git@github.com:your-user/your-repo.git</code></p>
-    <button id="repo-url-save-btn" class="primary">Save and start</button>
+    <h2>Setup needed</h2>
+    <p class="help-text">This extension build is missing its mirror destination. Ask the provider for a configured build.</p>
+
+    <details class="developer-setup">
+      <summary>Developer setup</summary>
+      <p class="help-text">Enter the delivery repo used by this test build.</p>
+      <input
+        type="text"
+        id="repo-url-input"
+        class="repo-url-input"
+        placeholder="https://github.com/username/mirror-repo"
+        spellcheck="false"
+      />
+      <p class="example-text">Examples: <code>https://github.com/your-user/your-repo</code> or <code>git@github.com:your-user/your-repo.git</code></p>
+      <button id="repo-url-save-btn" class="primary">Save test repo</button>
+    </details>
     <p class="error" id="config-error" hidden></p>
     <p class="success" id="config-message" hidden></p>
   </section>
@@ -57,20 +62,9 @@
 
   <section class="registration-card" id="registration-section" hidden>
     <h2>Registration</h2>
-    <p class="help-text">Submit a website request to GitHub for the producer to process.</p>
+    <p class="help-text">Request a website to make available offline.</p>
 
-    <label for="github-token-input" class="field-label">GitHub token</label>
-    <input
-      type="password"
-      id="github-token-input"
-      class="repo-url-input"
-      placeholder="Paste once; saved locally"
-      autocomplete="off"
-      spellcheck="false"
-    />
-    <p class="example-text">Needs Contents read/write access to the registry and delivery repos.</p>
-
-    <label for="requested-url-input" class="field-label">Requested website URL</label>
+    <label for="requested-url-input" class="field-label">Website URL</label>
     <input
       type="text"
       id="requested-url-input"
@@ -80,8 +74,8 @@
     />
 
     <div class="actions-inline">
-      <button id="create-request-btn" class="primary">Submit request</button>
-      <button id="refresh-registration-btn" class="secondary">Refresh state</button>
+      <button id="create-request-btn" class="primary">Request website</button>
+      <button id="refresh-registration-btn" class="secondary">Check status</button>
     </div>
 
     <div class="status-grid" id="registration-status-grid">
@@ -90,11 +84,11 @@
         <span class="chip-value" id="registry-state">not started</span>
       </div>
       <div class="status-chip">
-        <span class="chip-label">Ownership</span>
+        <span class="chip-label">Verification</span>
         <span class="chip-value" id="ownership-state">not verified</span>
       </div>
       <div class="status-chip">
-        <span class="chip-label">Delivery</span>
+        <span class="chip-label">Mirror</span>
         <span class="chip-value" id="delivery-state">not ready</span>
       </div>
     </div>
@@ -103,7 +97,7 @@
     <p class="error" id="registration-error" hidden></p>
 
     <details id="instructions-panel">
-      <summary>Submitted file details</summary>
+      <summary>Technical details</summary>
 
       <div class="instruction-block">
         <p class="instruction-title">Registry request file</p>

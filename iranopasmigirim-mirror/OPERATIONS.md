@@ -278,7 +278,7 @@ python3 pusher/mirror_and_push.py --config /etc/mirror/mirror.toml doctor
 ### Browser Extension
 
 - load `dist/chrome` in Chrome or `dist/firefox/manifest.json` in Firefox
-- confirm the popup accepts the user's own GitHub repo URL
+- confirm the popup shows only the website request field in configured builds
 - confirm sync errors point to the registry or signer mismatch, not malformed
   GitHub URLs
 
@@ -312,16 +312,19 @@ status `rejected` and never produce any delivery commit.
 
 ### Extension request submission
 
-The extension submits registration files through the GitHub API after the user
-saves a GitHub token with Contents read/write access to the registry and
-delivery repos:
+The user-facing extension never asks for a GitHub token. It posts the website
+request to the operator request service configured in `REGISTRATION_API_ENDPOINT`.
+That trusted service owns the GitHub write credential and creates:
 
 - request JSON: registry repo, `registrations` branch, `requests/<id>.json`
 - ownership proof: delivery repo, `requests` branch, `_mirror/challenges/<id>.txt`
 
 Until the request JSON exists on the registry branch, the producer correctly
 prints `no requests found`. The popup state stays `not submitted` until
-submission succeeds or **Refresh state** can see that request file remotely.
+submission succeeds or **Check status** can see that request file remotely.
+
+The request endpoint must use HTTPS. During `./setup.sh dev build`, its origin
+is added to the extension host permissions and `connect-src` policy.
 
 ### robots.txt bypass
 

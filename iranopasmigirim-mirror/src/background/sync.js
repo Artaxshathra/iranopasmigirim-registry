@@ -1,7 +1,7 @@
 // Sync engine for request-response protocol.
 //
 // Flow:
-//   1. Get user's configured repo URL from storage
+//   1. Get configured delivery repo URL from storage or release config
 //   2. Poll user's repo on CONTENT_BRANCH
 //   3. Fetch tip commit + tree SHA
 //   4. Verify signature against producer's public key
@@ -13,8 +13,8 @@
 // Backoff: tracked in meta so it survives SW restarts. Doubles on failure,
 // resets to POLL_INTERVAL_MINUTES on success.
 //
-// User must configure repo URL before sync can run. Repo must exist and have
-// content/ branch with signed commits from producer.
+// The release must configure a delivery repo before sync can run. Repo must
+// exist and have content/ branch with signed commits from producer.
 
 import {
   resolvePointer, getTree, fetchRaw, verifyCommit,
@@ -27,7 +27,7 @@ import {
   POLL_INTERVAL_MINUTES, MAX_BACKOFF_MINUTES,
   MAX_FILE_SIZE_BYTES, MAX_FILES_PER_SYNC, MAINTENANCE_INTERVAL_HOURS,
   MIRROR_MANIFEST_PATH, DEFAULT_ENTRY_PATH,
-  STORAGE_RECOVERY_TARGET_BYTES, STALE_FILE_TTL_DAYS,
+  STORAGE_RECOVERY_TARGET_BYTES, STALE_FILE_TTL_DAYS, DEFAULT_USER_REPO_URL,
 } from '../config.js';
 
 // Single in-flight sync at a time. The alarm can fire while a previous
@@ -47,7 +47,7 @@ let status = {
 
 const MAINTENANCE_INTERVAL_MS = MAINTENANCE_INTERVAL_HOURS * 60 * 60 * 1000;
 const MAX_MANIFEST_SIZE_BYTES = 1024 * 1024;
-const MISSING_REPO_URL_ERROR = 'Mirror repo URL not configured. Set it in the extension popup.';
+const MISSING_REPO_URL_ERROR = 'Mirror destination is not configured for this extension build.';
 
 export function getStatus() { return status; }
 
@@ -85,12 +85,14 @@ function setStatus(patch) {
   emit();
 }
 
-// Get the user's configured mirror repo URL from storage.
+// Get the configured mirror repo URL from storage or release config.
 // Returns null if not configured.
 async function getUserRepoUrl() {
   return new Promise((resolve) => {
     chrome.storage.local.get('userRepoUrl', (result) => {
-      resolve(result && result.userRepoUrl ? String(result.userRepoUrl).trim() : null);
+      const stored = result && result.userRepoUrl ? String(result.userRepoUrl).trim() : '';
+      const configured = String(DEFAULT_USER_REPO_URL || '').trim();
+      resolve(stored || configured || null);
     });
   });
 }

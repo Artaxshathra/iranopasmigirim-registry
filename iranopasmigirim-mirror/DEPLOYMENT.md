@@ -200,8 +200,15 @@ Before building a release for real users, update
 [src/config.js](src/config.js) with:
 
 - `REGISTRY_REPO_URL`
+- `DEFAULT_USER_REPO_URL`
+- `REGISTRATION_API_ENDPOINT`
 - `TRUSTED_SIGNERS`
 - `TRUSTED_SIGNER_PUBLIC_KEYS`
+
+`DEFAULT_USER_REPO_URL` is the delivery repo the extension syncs from.
+`REGISTRATION_API_ENDPOINT` is your HTTPS request service. That service, not
+the browser extension, owns the GitHub write credential and creates the two
+registration files.
 
 Then build:
 
@@ -214,20 +221,20 @@ Install manually:
 - Chrome: `chrome://extensions` -> Developer mode -> Load unpacked -> `dist/chrome`
 - Firefox: `about:debugging` -> This Firefox -> Load Temporary Add-on -> `dist/firefox/manifest.json`
 
-For local end-to-end testing, set the delivery repo URL once in the popup. The
-repo URL, latest requested URL, and optional GitHub token are saved in extension
-storage until you change them.
+For a configured release, the user only enters the website URL and clicks
+**Request website**. The user does not need a GitHub account, token, repo URL,
+commit, or branch knowledge.
 
-Paste a GitHub token with Contents read/write access to the registry and
-delivery repos, enter the requested website URL, then click **Submit request**.
-The extension writes both registration files automatically:
+The request service writes both registration files automatically:
 
 - request JSON to the registry repo on the `registrations` branch
 - ownership challenge text to the delivery repo on the `requests` branch
 
-The producer will keep printing `no requests found` until the request JSON
-exists on the registry `registrations` branch. After submission, click
-**Refresh state** in the popup if you want to re-check the remote state.
+The producer will keep printing `no requests found` until the request service
+creates the request JSON on the registry `registrations` branch. If
+`DEFAULT_USER_REPO_URL` is empty, the popup shows developer setup. If
+`REGISTRATION_API_ENDPOINT` is empty, request submission is intentionally
+disabled until you publish a configured build.
 
 ## 7. Useful Diagnostics
 

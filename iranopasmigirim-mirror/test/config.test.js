@@ -46,9 +46,17 @@ describe('config: invariants', () => {
 
   it('registry and manifest constants are configured', () => {
     assert.equal(typeof cfg.REGISTRY_REPO_URL, 'string');
+    assert.equal(typeof cfg.DEFAULT_USER_REPO_URL, 'string');
+    assert.equal(typeof cfg.REGISTRATION_API_ENDPOINT, 'string');
     assert.equal(typeof cfg.MIRROR_MANIFEST_PATH, 'string');
     assert.equal(typeof cfg.DEFAULT_ENTRY_PATH, 'string');
     assert.match(cfg.REGISTRY_REPO_URL, /^https:\/\/github\.com\/.+\/.+/i);
+    if (cfg.DEFAULT_USER_REPO_URL) {
+      assert.match(cfg.DEFAULT_USER_REPO_URL, /^https:\/\/github\.com\/.+\/.+/i);
+    }
+    if (cfg.REGISTRATION_API_ENDPOINT) {
+      assert.match(cfg.REGISTRATION_API_ENDPOINT, /^https:\/\//i);
+    }
     assert.ok(cfg.MIRROR_MANIFEST_PATH.includes('/'));
     assert.ok(!cfg.DEFAULT_ENTRY_PATH.startsWith('/'));
   });
