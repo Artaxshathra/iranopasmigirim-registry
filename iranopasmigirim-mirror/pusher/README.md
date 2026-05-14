@@ -68,6 +68,7 @@ Key options:
 - `whitelist_hosts`: primary allowlist of hosts the producer may mirror
 - `signing_key`: GPG secret key id or full fingerprint used for signed commits. Find it on the producer host with `gpg --list-secret-keys --keyid-format LONG`, then copy the long id from the `sec` line, for example `0xDD13EC3368AA05D1`.
 - `interval_minutes`: daemon cadence
+- foreground testing can override that cadence for one run with `./setup.sh producer daemon --interval 2`
 - `max_requests_per_run`: cap per cycle
 - `block_payment_domains`: extra denylist for payment links found inside already-whitelisted pages; matching links are rewritten to a blocked page
 - `block_stream_extensions`: extra denylist for stream/media URL patterns found inside already-whitelisted pages; matching links are rewritten to a blocked page

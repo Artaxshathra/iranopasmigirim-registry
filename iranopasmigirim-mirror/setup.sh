@@ -65,8 +65,9 @@ Commands:
                          Default: ~/.config/iranopasmigirim-producer/config.toml
   producer run-once [CONFIG_PATH]
                          Run one producer cycle with the given config
-  producer daemon [CONFIG_PATH]
+  producer daemon [CONFIG_PATH] [--interval MINUTES]
                          Run producer forever using interval_minutes from config
+                         or override it for this foreground process only
   producer setup-system REGISTRY_REPO_URL SIGNING_KEY
                          Provision a dedicated producer host and enable mirror.timer
   producer status       Show mirror.timer status via systemctl
@@ -88,6 +89,7 @@ Examples:
   ./setup.sh producer
   ./setup.sh producer run-once
   ./setup.sh producer daemon
+  ./setup.sh producer daemon --interval 2
   ./setup.sh producer setup-system https://github.com/example/registry 0xA1B2C3D4E5F6A7B8
   ./setup.sh producer status
   ./setup.sh producer logs
@@ -619,6 +621,7 @@ producer_command_usage() {
 run_producer_cli_with_config() {
   local action="$1"
   local config_path="$2"
+  shift 2
 
   ensure_command_dependencies "Producer setup" python3 git gpg httrack
   ensure_python_toml_support "Producer setup"
@@ -649,7 +652,8 @@ PYEOF
 
   python3 "$SCRIPT_DIR/pusher/mirror_and_push.py" \
     --config "$config_path" \
-    "$action"
+    "$action" \
+    "$@"
 }
 
 cmd_producer_doctor() {
@@ -695,11 +699,38 @@ cmd_producer_run_once() {
 }
 
 cmd_producer_daemon() {
-  local config_path="$1"
+  local config_path="${1:-$HOME/.config/iranopasmigirim-producer/config.toml}"
+  shift || true
+  local interval=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --interval)
+        [[ $# -ge 2 ]] || die "producer daemon --interval requires MINUTES"
+        interval="$2"
+        shift 2
+        ;;
+      --interval=*)
+        interval="${1#--interval=}"
+        shift
+        ;;
+      *)
+        die "Unknown producer daemon argument: $1"
+        ;;
+    esac
+  done
+
+  if [[ -n "$interval" && ! "$interval" =~ ^[0-9]+$ ]]; then
+    die "producer daemon --interval expects a positive integer"
+  fi
 
   log_header "Producer Daemon"
   log_info "Checking dependencies..."
-  run_producer_cli_with_config daemon "$config_path"
+  if [[ -n "$interval" ]]; then
+    run_producer_cli_with_config daemon "$config_path" --interval "$interval"
+  else
+    run_producer_cli_with_config daemon "$config_path"
+  fi
 }
 
 cmd_producer_setup_system() {
@@ -752,8 +783,13 @@ cmd_producer() {
       cmd_producer_run_once "$config_path"
       ;;
     daemon)
-      config_path="${2:-$HOME/.config/iranopasmigirim-producer/config.toml}"
-      cmd_producer_daemon "$config_path"
+      if [[ "${2:-}" == --* || -z "${2:-}" ]]; then
+        config_path="$HOME/.config/iranopasmigirim-producer/config.toml"
+        cmd_producer_daemon "$config_path" "${@:2}"
+      else
+        config_path="$2"
+        cmd_producer_daemon "$config_path" "${@:3}"
+      fi
       ;;
     setup-system)
       cmd_producer_setup_system "${2:-}" "${3:-}"

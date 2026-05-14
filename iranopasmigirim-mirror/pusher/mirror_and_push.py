@@ -1240,9 +1240,14 @@ def cmd_run_once(args: argparse.Namespace) -> int:
 
 def cmd_daemon(args: argparse.Namespace) -> int:
     cfg = load_config(Path(args.config))
+    interval_minutes = cfg.interval_minutes
+    if args.interval is not None:
+        interval_minutes = validate_interval_minutes(args.interval)
     lock_path = producer_lock_path(cfg)
     lock = acquire_lock(lock_path)
     advisory_safety_note()  # print once at daemon start, not every cycle
+    if args.interval is not None:
+        print(f"[daemon] using interval override: {interval_minutes} minute(s)", flush=True)
     try:
         while True:
             start = time.time()
@@ -1251,7 +1256,7 @@ def cmd_daemon(args: argparse.Namespace) -> int:
             except Exception as exc:  # noqa: BLE001
                 print(f"[error] run failed: {exc}", flush=True)
             elapsed = time.time() - start
-            sleep_s = max(5, cfg.interval_minutes * 60 - int(elapsed))
+            sleep_s = max(5, interval_minutes * 60 - int(elapsed))
             print(f"sleeping {sleep_s}s", flush=True)
             time.sleep(sleep_s)
     finally:
@@ -1338,6 +1343,8 @@ def build_parser() -> argparse.ArgumentParser:
     run_p.set_defaults(func=cmd_run_once)
 
     daemon_p = sub.add_parser("daemon", help="run forever with interval_minutes cadence")
+    daemon_p.add_argument("--interval", type=int, default=None,
+                          help="override minutes between runs for this process only")
     daemon_p.set_defaults(func=cmd_daemon)
 
     setup_p = sub.add_parser("setup-system", help="one-command deterministic system setup (root)")

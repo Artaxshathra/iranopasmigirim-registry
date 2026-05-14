@@ -153,6 +153,12 @@ Run the producer continuously in the foreground:
 ./setup.sh producer daemon
 ```
 
+For faster local testing without changing the saved config cadence:
+
+```bash
+./setup.sh producer daemon --interval 2
+```
+
 ### Option B: Full Host Provisioning
 
 For a dedicated producer host, use the producer's built-in setup command
@@ -331,7 +337,9 @@ gpg --batch --passphrase '' --quick-gen-key "Mirror Producer <mirror@localhost>"
 
 For user-level daemon mode (`./setup.sh producer daemon`) the agent must
 already be running with loopback pinentry enabled, or the key must have no
-passphrase.
+passphrase. You can use `./setup.sh producer daemon --interval 2` for a
+faster foreground test loop without editing `interval_minutes` in the saved
+config.
 
 ### systemd service `ProtectHome` and path access
 

@@ -11,6 +11,7 @@ if str(THIS_DIR) not in sys.path:
 from mirror_and_push import (  # type: ignore
     Config,
     DEFAULT_CONFIG,
+    cmd_daemon,
     current_head_sha,
     detect_linux_package_manager,
     ensure_pip_for_active_python,
@@ -167,6 +168,22 @@ class ProducerParsingTests(unittest.TestCase):
         self.assertNotIn(' onerror=', out.lower())
         self.assertIn('/__mirror_blocked.html?reason=active-content', out)
         self.assertIn('/__mirror_blocked.html?reason=form', out)
+
+    def test_cmd_daemon_uses_interval_override_for_sleep(self):
+        cfg = self.make_cfg()
+        fake_lock = unittest.mock.Mock()
+
+        with patch('mirror_and_push.load_config', return_value=cfg), \
+                patch('mirror_and_push.acquire_lock', return_value=fake_lock), \
+                patch('mirror_and_push.advisory_safety_note'), \
+                patch('mirror_and_push.run_once'), \
+                patch('mirror_and_push.time.time', side_effect=[100.0, 100.0]), \
+                patch('mirror_and_push.time.sleep', side_effect=KeyboardInterrupt) as sleep_mock:
+            with self.assertRaises(KeyboardInterrupt):
+                cmd_daemon(unittest.mock.Mock(config='/tmp/mirror.toml', interval=2))
+
+        sleep_mock.assert_called_once_with(120)
+        fake_lock.close.assert_called_once()
 
 
 class ProducerCheckoutTests(unittest.TestCase):

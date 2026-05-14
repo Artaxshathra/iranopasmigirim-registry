@@ -134,6 +134,12 @@ Run the producer continuously in the foreground:
 ./setup.sh producer daemon
 ```
 
+For faster local testing without changing the saved config cadence:
+
+```bash
+./setup.sh producer daemon --interval 2
+```
+
 If you are setting up a dedicated producer server, use this separate full-host
 provisioning path instead:
 
