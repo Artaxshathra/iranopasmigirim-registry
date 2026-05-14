@@ -1374,6 +1374,17 @@ def main() -> int:
     args = parser.parse_args()
     try:
         return int(args.func(args))
+    except BrokenPipeError:
+        # A downstream consumer like `grep -m1` can close the pipe after it has
+        # seen enough output. Redirect remaining flushes to /dev/null so Python
+        # exits quietly instead of printing a traceback during shutdown.
+        devnull_fd = os.open(os.devnull, os.O_WRONLY)
+        try:
+            os.dup2(devnull_fd, sys.stdout.fileno())
+            os.dup2(devnull_fd, sys.stderr.fileno())
+        finally:
+            os.close(devnull_fd)
+        return 141
     except subprocess.CalledProcessError as exc:
         cmd = " ".join(exc.cmd) if isinstance(exc.cmd, list) else str(exc.cmd)
         print(f"[error] command failed ({exc.returncode}): {cmd}", file=sys.stderr)

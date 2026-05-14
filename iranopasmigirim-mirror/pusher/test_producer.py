@@ -26,6 +26,7 @@ from mirror_and_push import (  # type: ignore
     package_names_for_tools,
     parse_request_doc,
     producer_lock_path,
+    main,
     replace_config_assignment,
     rollback_delivery_checkout,
     sanitize_html_text,
@@ -184,6 +185,22 @@ class ProducerParsingTests(unittest.TestCase):
 
         sleep_mock.assert_called_once_with(120)
         fake_lock.close.assert_called_once()
+
+    def test_main_exits_cleanly_on_broken_pipe(self):
+        parser = unittest.mock.Mock()
+        parser.parse_args.return_value = unittest.mock.Mock(
+            func=unittest.mock.Mock(side_effect=BrokenPipeError())
+        )
+
+        with patch('mirror_and_push.build_parser', return_value=parser), \
+                patch('mirror_and_push.os.open', return_value=99) as open_mock, \
+                patch('mirror_and_push.os.dup2') as dup2_mock, \
+                patch('mirror_and_push.os.close') as close_mock:
+            self.assertEqual(main(), 141)
+
+        open_mock.assert_called_once()
+        self.assertEqual(dup2_mock.call_count, 2)
+        close_mock.assert_called_once_with(99)
 
 
 class ProducerCheckoutTests(unittest.TestCase):
