@@ -3,7 +3,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createMessage, generateKey, readPrivateKey, sign } from 'openpgp';
-import { verifyCommit } from '../src/background/github.js';
+import { commitTextFileToBranch, verifyCommit } from '../src/background/github.js';
 
 // We test verifyCommit() in isolation. Network-touching functions
 // (getTipCommit, getTree, fetchRaw) are integration paths and are exercised
@@ -159,5 +159,83 @@ describe('verifyCommit: strict pinned-key verification', () => {
       allowUnpinned: true,
     });
     assert.equal(r.ok, true);
+  });
+});
+
+describe('commitTextFileToBranch: GitHub Contents API writer', () => {
+  function mockFetch(handler) {
+    const previousFetch = globalThis.fetch;
+    globalThis.fetch = async (url, options = {}) => handler(String(url), options);
+    return () => { globalThis.fetch = previousFetch; };
+  }
+
+  function jsonResponse(body, status = 200) {
+    return new Response(JSON.stringify(body), {
+      status,
+      headers: { 'content-type': 'application/json' },
+    });
+  }
+
+  it('creates a missing branch and commits a new text file', async () => {
+    const calls = [];
+    const restoreFetch = mockFetch(async (url, options) => {
+      calls.push({ url, options });
+      if (url.endsWith('/git/ref/heads/requests')) return jsonResponse({ message: 'Not Found' }, 404);
+      if (url.endsWith('/repos/example/repo')) return jsonResponse({ default_branch: 'main' });
+      if (url.endsWith('/git/ref/heads/main')) return jsonResponse({ object: { sha: 'base-sha' } });
+      if (url.endsWith('/git/refs')) return jsonResponse({ ref: 'refs/heads/requests' }, 201);
+      if (url.includes('/contents/requests/foo.json?ref=requests')) return jsonResponse({ message: 'Not Found' }, 404);
+      if (url.endsWith('/contents/requests/foo.json')) {
+        const body = JSON.parse(options.body);
+        assert.equal(options.method, 'PUT');
+        assert.equal(options.headers.Authorization, 'Bearer token-123');
+        assert.equal(body.message, 'register: req');
+        assert.equal(body.branch, 'requests');
+        assert.equal(atob(body.content), 'hello\n');
+        return jsonResponse({ content: { sha: 'file-sha' }, commit: { sha: 'commit-sha' } }, 201);
+      }
+      throw new Error(`unexpected URL: ${url}`);
+    });
+
+    try {
+      const result = await commitTextFileToBranch({
+        repoUrl: 'https://github.com/example/repo',
+        branch: 'requests',
+        path: 'requests/foo.json',
+        content: 'hello\n',
+        message: 'register: req',
+        token: 'token-123',
+      });
+      assert.equal(result.skipped, false);
+      assert.equal(result.commitSha, 'commit-sha');
+      assert.equal(calls.length, 6);
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  it('skips when the remote file already has the same content', async () => {
+    const restoreFetch = mockFetch(async (url) => {
+      if (url.endsWith('/git/ref/heads/requests')) return jsonResponse({ object: { sha: 'branch-sha' } });
+      if (url.includes('/contents/_mirror/challenges/req.txt?ref=requests')) {
+        return jsonResponse({ type: 'file', sha: 'same-sha', content: btoa('nonce\n') });
+      }
+      throw new Error(`unexpected URL: ${url}`);
+    });
+
+    try {
+      const result = await commitTextFileToBranch({
+        repoUrl: 'https://github.com/example/repo',
+        branch: 'requests',
+        path: '_mirror/challenges/req.txt',
+        content: 'nonce\n',
+        message: 'proof: req',
+        token: 'token-123',
+      });
+      assert.equal(result.skipped, true);
+      assert.equal(result.sha, 'same-sha');
+    } finally {
+      restoreFetch();
+    }
   });
 });

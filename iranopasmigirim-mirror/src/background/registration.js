@@ -127,7 +127,7 @@ export function buildCommitInstructions(draft) {
     },
     step3: {
       action: 'refresh-registration-status',
-      note: 'Use the extension refresh button after both commits are pushed.',
+      note: 'Use the extension refresh button after the request is submitted.',
     },
   };
 }

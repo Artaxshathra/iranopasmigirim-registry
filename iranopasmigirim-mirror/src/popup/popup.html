@@ -57,7 +57,18 @@
 
   <section class="registration-card" id="registration-section" hidden>
     <h2>Registration</h2>
-    <p class="help-text">Prepare the two GitHub files the producer needs. Nothing is submitted until you commit both files below.</p>
+    <p class="help-text">Submit a website request to GitHub for the producer to process.</p>
+
+    <label for="github-token-input" class="field-label">GitHub token</label>
+    <input
+      type="password"
+      id="github-token-input"
+      class="repo-url-input"
+      placeholder="Paste once; saved locally"
+      autocomplete="off"
+      spellcheck="false"
+    />
+    <p class="example-text">Needs Contents read/write access to the registry and delivery repos.</p>
 
     <label for="requested-url-input" class="field-label">Requested website URL</label>
     <input
@@ -69,7 +80,7 @@
     />
 
     <div class="actions-inline">
-      <button id="create-request-btn" class="primary">Create request package</button>
+      <button id="create-request-btn" class="primary">Submit request</button>
       <button id="refresh-registration-btn" class="secondary">Refresh state</button>
     </div>
 
@@ -92,16 +103,16 @@
     <p class="error" id="registration-error" hidden></p>
 
     <details id="instructions-panel">
-      <summary>Required GitHub commits</summary>
+      <summary>Submitted file details</summary>
 
       <div class="instruction-block">
-        <p class="instruction-title">Step 1: commit request to registry repo</p>
+        <p class="instruction-title">Registry request file</p>
         <p class="instruction-meta" id="step1-meta">-</p>
         <textarea id="step1-content" class="instruction-content" readonly></textarea>
       </div>
 
       <div class="instruction-block">
-        <p class="instruction-title">Step 2: commit ownership challenge in your repo</p>
+        <p class="instruction-title">Ownership challenge file</p>
         <p class="instruction-meta" id="step2-meta">-</p>
         <textarea id="step2-content" class="instruction-content" readonly></textarea>
       </div>

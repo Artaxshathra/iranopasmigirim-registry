@@ -14,7 +14,7 @@ import {
   runUserRecovery,
 } from './sync.js';
 import { serve } from './serve.js';
-import { fetchJsonFromBranch, fetchTextFromBranch } from './github.js';
+import { commitTextFileToBranch, fetchJsonFromBranch, fetchTextFromBranch } from './github.js';
 import {
   buildCommitInstructions,
   createRegistrationDraft,
@@ -154,6 +154,77 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             ok: true,
             draft,
             instructions: buildCommitInstructions(draft),
+          };
+        })
+        .then((result) => { try { sendResponse(result); } catch (_) {} })
+        .catch((e) => {
+          try { sendResponse({ ok: false, error: e && e.message ? e.message : String(e) }); }
+          catch (_) {}
+        });
+      return true;
+    }
+    case 'registration-submit': {
+      if (!isTrustedSyncSender(sender)) {
+        try { sendResponse({ ok: false, error: 'forbidden sender' }); } catch (_) {}
+        return false;
+      }
+      const payload = msg && msg.payload ? msg.payload : {};
+      Promise.resolve()
+        .then(async () => {
+          const token = await getLocal('githubToken');
+          if (!token) throw new Error('Save a GitHub token first so the extension can submit the request.');
+
+          const existingDraft = await getLocal(REGISTRATION_KEY);
+          const requestedRepoUrl = String(payload.userRepoUrl || '').trim();
+          const requestedWebsiteUrl = String(payload.requestedUrl || '').trim();
+          const draft = existingDraft
+            && existingDraft.userRepoUrl === requestedRepoUrl
+            && existingDraft.requestedUrl === requestedWebsiteUrl
+            ? existingDraft
+            : createRegistrationDraft({
+              userRepoUrl: payload.userRepoUrl,
+              requestedUrl: payload.requestedUrl,
+            });
+          const instructions = buildCommitInstructions(draft);
+          await setLocal({
+            registrationDraft: draft,
+            userRepoUrl: draft.userRepoUrl,
+            requestedUrl: draft.requestedUrl,
+          });
+
+          await commitTextFileToBranch({
+            repoUrl: instructions.step2.repoUrl,
+            branch: instructions.step2.branch,
+            path: instructions.step2.path,
+            content: instructions.step2.content,
+            message: instructions.step2.commitMessage,
+            token,
+          });
+          await commitTextFileToBranch({
+            repoUrl: instructions.step1.repoUrl,
+            branch: instructions.step1.branch,
+            path: instructions.step1.path,
+            content: instructions.step1.content,
+            message: instructions.step1.commitMessage,
+            token,
+          });
+
+          const nextDraft = mergeRegistrationRemoteState(
+            draft,
+            null,
+            instructions.step2.content,
+            Date.now(),
+            JSON.parse(instructions.step1.content),
+          );
+          await setLocal({
+            registrationDraft: nextDraft,
+            userRepoUrl: nextDraft.userRepoUrl,
+            requestedUrl: nextDraft.requestedUrl,
+          });
+          return {
+            ok: true,
+            draft: nextDraft,
+            instructions: buildCommitInstructions(nextDraft),
           };
         })
         .then((result) => { try { sendResponse(result); } catch (_) {} })

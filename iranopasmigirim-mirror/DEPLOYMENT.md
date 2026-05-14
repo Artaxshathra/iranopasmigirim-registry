@@ -215,18 +215,19 @@ Install manually:
 - Firefox: `about:debugging` -> This Firefox -> Load Temporary Add-on -> `dist/firefox/manifest.json`
 
 For local end-to-end testing, set the delivery repo URL once in the popup. The
-repo URL and latest requested URL are saved in extension storage until you
-change them.
+repo URL, latest requested URL, and optional GitHub token are saved in extension
+storage until you change them.
 
-Clicking **Create request package** does not push to GitHub. It prepares two
-files that you must commit manually:
+Paste a GitHub token with Contents read/write access to the registry and
+delivery repos, enter the requested website URL, then click **Submit request**.
+The extension writes both registration files automatically:
 
 - request JSON to the registry repo on the `registrations` branch
 - ownership challenge text to the delivery repo on the `requests` branch
 
-The producer will keep printing `no requests found` until the first file exists
-on the registry `registrations` branch. After both commits are pushed, click
-**Refresh state** in the popup.
+The producer will keep printing `no requests found` until the request JSON
+exists on the registry `registrations` branch. After submission, click
+**Refresh state** in the popup if you want to re-check the remote state.
 
 ## 7. Useful Diagnostics
 

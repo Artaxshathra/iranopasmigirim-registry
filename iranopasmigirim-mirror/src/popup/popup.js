@@ -25,6 +25,7 @@ const els = {
   resetStorageBtn: $('reset-storage-btn'),
 
   registrationSection: $('registration-section'),
+  githubTokenInput: $('github-token-input'),
   requestedUrlInput: $('requested-url-input'),
   createRequestBtn: $('create-request-btn'),
   refreshRegistrationBtn: $('refresh-registration-btn'),
@@ -44,6 +45,7 @@ els.openSite.href = chrome.runtime.getURL(`${SERVE_PATH}index.html`);
 let lastFullStats = { fileCount: 0, bytes: 0 };
 let currentRepoUrl = null;
 let currentRegistration = null;
+let hasStoredGitHubToken = false;
 
 init().catch((e) => {
   console.error('[popup] init failed', e && e.message);
@@ -53,6 +55,10 @@ init().catch((e) => {
 async function init() {
   const userRepoUrl = await getStoredRepoUrl();
   const requestedUrl = await getStoredRequestedUrl();
+  hasStoredGitHubToken = await getHasStoredGitHubToken();
+  if (hasStoredGitHubToken) {
+    els.githubTokenInput.placeholder = 'Saved token will be used';
+  }
   if (requestedUrl) {
     els.requestedUrlInput.value = requestedUrl;
   }
@@ -96,6 +102,14 @@ function getStoredRequestedUrl() {
     chrome.storage.local.get('requestedUrl', (result) => {
       const value = result && result.requestedUrl ? String(result.requestedUrl).trim() : '';
       resolve(value || null);
+    });
+  });
+}
+
+function getHasStoredGitHubToken() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get('githubToken', (result) => {
+      resolve(Boolean(result && result.githubToken));
     });
   });
 }
@@ -164,11 +178,25 @@ els.createRequestBtn.addEventListener('click', async () => {
     return;
   }
 
+  const githubToken = String(els.githubTokenInput.value || '').trim();
+  if (!githubToken && !hasStoredGitHubToken) {
+    els.registrationError.hidden = false;
+    els.registrationError.textContent = 'Paste a GitHub token once so the extension can submit the request automatically.';
+    return;
+  }
+
   els.createRequestBtn.disabled = true;
   try {
-    await setStorage({ requestedUrl });
+    const storageUpdate = { requestedUrl };
+    if (githubToken) storageUpdate.githubToken = githubToken;
+    await setStorage(storageUpdate);
+    if (githubToken) {
+      hasStoredGitHubToken = true;
+      els.githubTokenInput.value = '';
+      els.githubTokenInput.placeholder = 'Saved token will be used';
+    }
     const resp = await sendMessage({
-      type: 'registration-create',
+      type: 'registration-submit',
       payload: {
         userRepoUrl: currentRepoUrl,
         requestedUrl,
@@ -180,7 +208,7 @@ els.createRequestBtn.addEventListener('click', async () => {
     currentRegistration = resp.draft || null;
     renderRegistration(resp.draft, resp.instructions);
     els.registrationMessage.hidden = false;
-    els.registrationMessage.textContent = 'Request package prepared locally. It is not submitted until both files below are committed to GitHub.';
+    els.registrationMessage.textContent = 'Submitted to GitHub. The producer will process it on its next run.';
   } catch (e) {
     els.registrationError.hidden = false;
     els.registrationError.textContent = (e && e.message) || String(e);
