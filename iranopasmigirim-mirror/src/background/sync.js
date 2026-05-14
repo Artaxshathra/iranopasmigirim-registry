@@ -47,8 +47,21 @@ let status = {
 
 const MAINTENANCE_INTERVAL_MS = MAINTENANCE_INTERVAL_HOURS * 60 * 60 * 1000;
 const MAX_MANIFEST_SIZE_BYTES = 1024 * 1024;
+const MISSING_REPO_URL_ERROR = 'Mirror repo URL not configured. Set it in the extension popup.';
 
 export function getStatus() { return status; }
+
+export function reconcileStatusWithConfiguredRepo(currentStatus, userRepoUrl) {
+  if (!userRepoUrl) return currentStatus;
+  if (!currentStatus || currentStatus.state !== 'error') return currentStatus;
+  if (currentStatus.lastError !== MISSING_REPO_URL_ERROR) return currentStatus;
+  return {
+    ...currentStatus,
+    state: 'idle',
+    lastError: null,
+    progress: null,
+  };
+}
 
 export function shouldRunMaintenance(lastMaintenanceAt, now = Date.now()) {
   const last = Number(lastMaintenanceAt || 0);
@@ -89,7 +102,7 @@ export async function syncOnce({ force = false } = {}) {
     try {
       const userRepoUrl = await getUserRepoUrl();
       if (!userRepoUrl) {
-        throw new Error('Mirror repo URL not configured. Set it in the extension popup.');
+        throw new Error(MISSING_REPO_URL_ERROR);
       }
 
       const registrationDraft = await getRegistrationDraft();
@@ -317,9 +330,11 @@ export async function fullStatus() {
   const storageFull = Boolean(await getMeta('storageFull'));
   const activeSnapshot = (await getMeta('activeSnapshot')) || {};
   const lastRecovery = (await getMeta('lastRecovery')) || null;
+  const userRepoUrl = await getUserRepoUrl();
+  const visibleStatus = reconcileStatusWithConfiguredRepo(status, userRepoUrl);
   return {
-    ...status,
-    lastSyncAt: status.lastSyncAt || last,
+    ...visibleStatus,
+    lastSyncAt: visibleStatus.lastSyncAt || last,
     fileCount: s.count,
     bytes: s.bytes,
     storageFull,

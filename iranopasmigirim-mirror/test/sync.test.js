@@ -6,6 +6,7 @@ import {
   gitBlobShaHex,
   isQuotaError,
   parseSnapshotManifestBuffer,
+  reconcileStatusWithConfiguredRepo,
   shouldRunMaintenance,
   validateSnapshotManifest,
 } from '../src/background/sync.js';
@@ -46,6 +47,32 @@ describe('sync: maintenance scheduling', () => {
   it('runs after interval elapsed', () => {
     const hour = 60 * 60 * 1000;
     assert.equal(shouldRunMaintenance(10 * hour, 10 * hour + 24 * hour), true);
+  });
+});
+
+describe('sync: configured repo status reconciliation', () => {
+  it('clears the stale missing-repo error once a repo is configured', () => {
+    const next = reconcileStatusWithConfiguredRepo({
+      state: 'error',
+      lastError: 'Mirror repo URL not configured. Set it in the extension popup.',
+      progress: { done: 0, total: 0 },
+      lastSyncAt: 0,
+    }, 'https://github.com/example/repo');
+
+    assert.equal(next.state, 'idle');
+    assert.equal(next.lastError, null);
+    assert.equal(next.progress, null);
+  });
+
+  it('keeps other errors intact even after a repo is configured', () => {
+    const next = reconcileStatusWithConfiguredRepo({
+      state: 'error',
+      lastError: 'GitHub https://api.github.com/... -> 404',
+      progress: null,
+    }, 'https://github.com/example/repo');
+
+    assert.equal(next.state, 'error');
+    assert.equal(next.lastError, 'GitHub https://api.github.com/... -> 404');
   });
 });
 
