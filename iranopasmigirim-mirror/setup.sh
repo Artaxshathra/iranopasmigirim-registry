@@ -924,7 +924,7 @@ main() {
       cmd_registry "${2:-}" "${3:-}" "${4:-}"
       ;;
     producer)
-      cmd_producer "${2:-}"
+      cmd_producer "${@:2}"
       ;;
     install-ext)
       cmd_install_ext "${2:-}"

@@ -99,6 +99,7 @@ describe('setup.sh: producer command surface', () => {
   });
 
   it('dispatches producer subcommands to wrapped runtime helpers', () => {
+    assert.match(setupScript, /producer\)\s*\n\s*cmd_producer "\$\{@:2\}"/);
     assert.match(setupScript, /cmd_producer_run_once\(\)/);
     assert.match(setupScript, /cmd_producer_daemon\(\)/);
     assert.match(setupScript, /cmd_producer_setup_system\(\)/);
