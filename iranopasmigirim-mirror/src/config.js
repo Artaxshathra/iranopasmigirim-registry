@@ -40,12 +40,3 @@ export const MIRROR_MANIFEST_PATH = '_mirror/manifest.json';
 export const DEFAULT_ENTRY_PATH = 'index.html';
 export const REQUEST_ANALYSIS_DELAY_MS = 30 * 60 * 1000;
 
-export const WHITELIST = {
-  'bbc.com': {
-    paths: ['/news', '/news/*'],
-    include_css: true,
-    include_images: true,
-    follow_depth: 0,
-    max_size_mb: 50,
-  },
-};

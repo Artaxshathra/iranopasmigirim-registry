@@ -164,13 +164,14 @@ Manual systemd option:
 - sample unit: `pusher/mirror.service`
 - sample timer: `pusher/mirror.timer`
 
-Allowed websites are configured in two places today:
+Allowed websites are configured in one place:
 
-- producer TOML `whitelist_hosts`: producer-side allowed host list
-- [src/config.js](src/config.js) -> `WHITELIST`: extension-side allowed
-  hosts and path policy
+- producer TOML `whitelist_hosts`: the only host allowlist. The producer
+  rejects requests for hosts not in this list, so the user's delivery repo
+  never receives content for them and the extension never serves them.
 
-Keep them aligned.
+The extension does not duplicate this list and does not need to be rebuilt
+when `whitelist_hosts` changes; only the producer needs to reload its config.
 
 The `block_stream_extensions` and `block_payment_domains` settings are not
 extra allowlists. They are extra deny rules inside already-whitelisted pages:
@@ -182,8 +183,7 @@ extra allowlists. They are extra deny rules inside already-whitelisted pages:
 
 Those `block_*` lists only remove functionality. They do not make any new site
 or feature available. If you want "absolutely nothing except a few news
-websites," the main control is `whitelist_hosts` plus the extension
-`WHITELIST`.
+websites," the only control you need is `whitelist_hosts`.
 
 If you prefer a different config path, `./setup.sh producer /path/to/config.toml`
 will create it automatically when missing.
@@ -196,7 +196,6 @@ Before building a release for real users, update
 - `REGISTRY_REPO_URL`
 - `TRUSTED_SIGNERS`
 - `TRUSTED_SIGNER_PUBLIC_KEYS`
-- `WHITELIST`
 
 Then build:
 

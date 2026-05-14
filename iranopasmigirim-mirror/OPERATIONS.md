@@ -184,12 +184,17 @@ Relevant files:
 - starter config: [pusher/mirror.toml.example](pusher/mirror.toml.example)
 - producer CLI docs: [pusher/README.md](pusher/README.md)
 
-Allowed website policy is split today:
+Allowed website policy lives in one place:
 
-- producer TOML `whitelist_hosts`: host allowlist for mirroring
-- [src/config.js](src/config.js) `WHITELIST`: extension request and path policy
+- producer TOML `whitelist_hosts`: the only host allowlist. The producer
+  rejects (status `rejected`) any registration request whose `siteHost` is
+  not in this list, so unwanted hosts never reach the user's delivery repo
+  and never reach the extension.
 
-Keep those host lists aligned.
+The extension itself does not enforce a host allowlist; it serves whatever
+the producer has signed and pushed to the user's `content` branch. This
+means the producer config is the single source of truth for what gets
+mirrored.
 
 The `block_stream_extensions` and `block_payment_domains` settings are not
 extra allowlists. They are extra deny rules inside already-whitelisted pages:
@@ -201,8 +206,7 @@ extra allowlists. They are extra deny rules inside already-whitelisted pages:
 
 Those `block_*` lists only remove functionality. They do not make any new site
 or feature available. If you want "absolutely nothing except a few news
-websites," the main control is `whitelist_hosts` plus the extension
-`WHITELIST`.
+websites," the only control you need is `whitelist_hosts`.
 
 For a custom config location, use `./setup.sh producer /path/to/config.toml`.
 If the file is missing, the helper creates it automatically.
@@ -296,8 +300,9 @@ whitelist_hosts = [
 ]
 ```
 
-The extension-side `WHITELIST` in `src/config.js` also uses the same host
-matching and must be kept in sync.
+This list lives only on the producer host. The extension does not duplicate
+it; requests for non-whitelisted hosts are rejected by the producer with
+status `rejected` and never produce any delivery commit.
 
 ### robots.txt bypass
 

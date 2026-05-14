@@ -26,7 +26,7 @@ import {
 import {
   POLL_INTERVAL_MINUTES, MAX_BACKOFF_MINUTES,
   MAX_FILE_SIZE_BYTES, MAX_FILES_PER_SYNC, MAINTENANCE_INTERVAL_HOURS,
-  MIRROR_MANIFEST_PATH, DEFAULT_ENTRY_PATH, WHITELIST,
+  MIRROR_MANIFEST_PATH, DEFAULT_ENTRY_PATH,
   STORAGE_RECOVERY_TARGET_BYTES, STALE_FILE_TTL_DAYS,
 } from '../config.js';
 
@@ -331,20 +331,17 @@ export async function fullStatus() {
   };
 }
 
-export function validateSnapshotManifest(manifest, whitelist = WHITELIST) {
+export function validateSnapshotManifest(manifest) {
   const siteHost = manifest && typeof manifest.siteHost === 'string'
     ? manifest.siteHost.trim().toLowerCase()
     : '';
-  if (!siteHost || !whitelist[siteHost]) {
-    throw new Error(`snapshot manifest host is not whitelisted: ${siteHost || 'unknown-host'}`);
+  if (!siteHost) {
+    throw new Error('snapshot manifest missing siteHost');
   }
 
   const entryPath = sanitizeEntryPath(
     manifest && typeof manifest.entryPath === 'string' ? manifest.entryPath : DEFAULT_ENTRY_PATH
   );
-  if (!isPathAllowedForHost(entryPath, siteHost)) {
-    throw new Error(`snapshot entryPath is outside whitelist paths: ${entryPath}`);
-  }
 
   const requestId = manifest && typeof manifest.requestId === 'string'
     ? manifest.requestId.trim()
@@ -475,26 +472,6 @@ export function parseSnapshotManifestBuffer(manifestBuffer) {
   }
 }
 
-function isPathAllowedForHost(path, siteHost) {
-  const hostPolicy = WHITELIST[String(siteHost || '').trim().toLowerCase()];
-  if (!hostPolicy || !Array.isArray(hostPolicy.paths) || hostPolicy.paths.length === 0) {
-    return false;
-  }
-  const normalizedPath = `/${String(path || '').replace(/^\/+/, '')}`;
-  for (const rawPattern of hostPolicy.paths) {
-    const pattern = String(rawPattern || '').trim();
-    if (!pattern) continue;
-    if (pattern === '/') return true;
-    if (pattern.endsWith('/*')) {
-      const base = pattern.slice(0, -1);
-      if (normalizedPath.startsWith(base)) return true;
-      continue;
-    }
-    if (normalizedPath === pattern) return true;
-    if (normalizedPath.startsWith(`${pattern}/`)) return true;
-  }
-  return false;
-}
 
 
 async function getRegistrationDraft() {

@@ -13,7 +13,7 @@
 
 import { getFile, touchFile } from './db.js';
 import { mimeFor, isHtml } from './mime.js';
-import { MIRROR_MANIFEST_PATH, SERVE_PATH, WHITELIST } from '../config.js';
+import { MIRROR_MANIFEST_PATH, SERVE_PATH } from '../config.js';
 
 // Headers we set on every response. CSP is the load-bearing one: the cached
 // site can run its own scripts (the whole point), but it must not be able
@@ -99,30 +99,6 @@ export function rewriteHtml(html, { siteHost = '' } = {}) {
   return out;
 }
 
-export function isPathAllowedForHost(path, siteHost, whitelist = WHITELIST) {
-  const normalizedHost = String(siteHost || '').trim().toLowerCase();
-  if (!normalizedHost) return false;
-  const hostPolicy = whitelist[normalizedHost];
-  if (!hostPolicy || !Array.isArray(hostPolicy.paths) || hostPolicy.paths.length === 0) {
-    return false;
-  }
-
-  const normalizedPath = `/${String(path || '').replace(/^\/+/, '')}`;
-  for (const rawPattern of hostPolicy.paths) {
-    const pattern = String(rawPattern || '').trim();
-    if (!pattern) continue;
-    if (pattern === '/') return true;
-    if (pattern.endsWith('/*')) {
-      const base = pattern.slice(0, -1); // keep trailing '/'
-      if (normalizedPath.startsWith(base)) return true;
-      continue;
-    }
-    if (normalizedPath === pattern) return true;
-    if (normalizedPath.startsWith(`${pattern}/`)) return true;
-  }
-  return false;
-}
-
 // Build a Response. Static assets are returned as-is; HTML gets the
 // <base href> injection. We never set a Content-Length: the body is
 // already a Blob/ArrayBuffer and the browser fills it in.
@@ -158,23 +134,6 @@ This is an offline copy — only pages captured by the most recent sync are avai
   });
 }
 
-function forbiddenResponse(path, siteHost) {
-  const html = `<!doctype html>
-<meta charset="utf-8">
-<title>Blocked by mirror policy</title>
-<style>
-  body{background:#0a0a0a;color:#eee;font:18px system-ui;margin:0;
-       display:grid;place-items:center;height:100vh;text-align:center;padding:24px}
-  h1{margin:0 0 12px;font-size:28px}
-  code{background:#1c1c1c;padding:2px 6px;border-radius:4px}
-</style>
-<h1>Blocked by mirror policy</h1>
-<p><code>${escapeHtml(path)}</code> is outside the allowed paths for <code>${escapeHtml(siteHost || 'unknown-host')}</code>.</p>`;
-  return new Response(html, {
-    status: 403,
-    headers: baseHeaders('text/html; charset=utf-8'),
-  });
-}
 
 function escapeHtml(s) {
   return String(s)
@@ -218,10 +177,6 @@ export async function serve(urlStr) {
       }
     }
   } catch (_) {}
-
-  if (siteHost && !isPathAllowedForHost(path, siteHost)) {
-    return forbiddenResponse(path, siteHost);
-  }
 
   return buildResponse(path, record, { siteHost });
 }

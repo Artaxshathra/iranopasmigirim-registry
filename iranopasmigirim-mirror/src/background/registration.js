@@ -3,7 +3,6 @@ import {
   REGISTRY_BRANCH,
   REGISTRY_REPO_URL,
   REQUESTS_BRANCH,
-  WHITELIST,
 } from '../config.js';
 import { parseGitHubUrl } from './github.js';
 
@@ -38,12 +37,6 @@ export function parseRequestedSite(requestedUrl) {
   };
 }
 
-export function isAllowedHost(siteHost, whitelist = WHITELIST) {
-  const normalized = normalizeHost(siteHost);
-  if (!normalized) return false;
-  return Object.prototype.hasOwnProperty.call(whitelist, normalized);
-}
-
 function randomHex(bytes = 8) {
   const array = new Uint8Array(bytes);
   crypto.getRandomValues(array);
@@ -53,10 +46,6 @@ function randomHex(bytes = 8) {
 export function createRegistrationDraft({ userRepoUrl, requestedUrl, now = Date.now() }) {
   const canonicalUserRepoUrl = canonicalRepoUrl(userRepoUrl);
   const site = parseRequestedSite(requestedUrl);
-
-  if (!isAllowedHost(site.siteHost)) {
-    throw new Error(`Requested host is not allowed by whitelist: ${site.siteHost}`);
-  }
 
   const requestId = `req-${Math.floor(now / 1000)}-${randomHex(6)}`;
   const nonce = randomHex(16);

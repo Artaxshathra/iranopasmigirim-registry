@@ -6,7 +6,6 @@ import {
   buildCommitInstructions,
   canonicalRepoUrl,
   createRegistrationDraft,
-  isAllowedHost,
   mergeRegistrationRemoteState,
   parseRequestedSite,
 } from '../src/background/registration.js';
@@ -29,12 +28,6 @@ describe('registration: repo/url normalization', () => {
     assert.equal(parsed.origin, 'https://www.bbc.com');
     assert.throws(() => parseRequestedSite('http://bbc.com/news'), /https/);
   });
-
-  it('checks whitelist-host eligibility', () => {
-    assert.equal(isAllowedHost('bbc.com'), true);
-    assert.equal(isAllowedHost('www.bbc.com'), true);
-    assert.equal(isAllowedHost('example.com'), false);
-  });
 });
 
 describe('registration: draft and instruction generation', () => {
@@ -52,15 +45,6 @@ describe('registration: draft and instruction generation', () => {
     assert.equal(draft.ownership.branch.length > 0, true);
     assert.equal(draft.delivery.producerFingerprint, null);
     assert.match(draft.ownership.challengePath, /^_mirror\/challenges\/.+\.txt$/);
-  });
-
-  it('rejects non-whitelisted hosts when creating draft', () => {
-    assert.throws(() => {
-      createRegistrationDraft({
-        userRepoUrl: 'https://github.com/example/user-mirror',
-        requestedUrl: 'https://example.com/',
-      });
-    }, /whitelist/);
   });
 
   it('builds two commit instructions with expected paths', () => {

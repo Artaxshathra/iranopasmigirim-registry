@@ -50,7 +50,7 @@ describe('sync: maintenance scheduling', () => {
 });
 
 describe('sync: snapshot manifest validation', () => {
-  it('accepts well-formed whitelisted manifest', () => {
+  it('accepts well-formed manifest', () => {
     const meta = validateSnapshotManifest({
       siteHost: 'bbc.com',
       entryPath: 'news/index.html',
@@ -61,22 +61,10 @@ describe('sync: snapshot manifest validation', () => {
     assert.equal(meta.requestId, 'req-123');
   });
 
-  it('rejects non-whitelisted host in manifest', () => {
+  it('rejects manifest with missing siteHost', () => {
     assert.throws(() => {
-      validateSnapshotManifest({
-        siteHost: 'evil.example',
-        entryPath: 'index.html',
-      });
-    }, /not whitelisted/);
-  });
-
-  it('rejects entry paths outside policy', () => {
-    assert.throws(() => {
-      validateSnapshotManifest({
-        siteHost: 'bbc.com',
-        entryPath: 'sport/index.html',
-      });
-    }, /outside whitelist paths/);
+      validateSnapshotManifest({ entryPath: 'index.html' });
+    }, /missing siteHost/);
   });
 
   it('rejects malformed manifest JSON payload', () => {

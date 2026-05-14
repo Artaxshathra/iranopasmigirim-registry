@@ -161,15 +161,16 @@ Python runtime can parse TOML configs.
 Use `pusher/mirror.service` and `pusher/mirror.timer` if you prefer manual
 systemd installation.
 
-Today, the allowed website set is configured in two places:
+Today, the allowed website set is configured in one place:
 
 - producer config `whitelist_hosts` in your real TOML file: controls which
-  hosts the producer will mirror
-- `iranopasmigirim-mirror/src/config.js` -> `WHITELIST`: controls which
-  hosts and paths the extension will request and accept
+  hosts the producer will mirror. The producer rejects requests for hosts
+  not in this list, so the user's delivery repo never receives unwanted
+  content and the extension never serves it.
 
-Keep those host lists aligned. If a host is missing from either one, the flow
-will fail.
+The extension does not maintain a separate host list and does not need to
+be rebuilt when `whitelist_hosts` changes — only the producer needs to
+reload its config.
 
 The `block_stream_extensions` and `block_payment_domains` settings are not
 extra allowlists. They are extra deny rules inside already-whitelisted pages:
@@ -181,8 +182,7 @@ extra allowlists. They are extra deny rules inside already-whitelisted pages:
 
 Those `block_*` lists only remove functionality. They do not make any new site
 or feature available. If you want "absolutely nothing except a few news
-websites," the main control is `whitelist_hosts` plus the extension
-`WHITELIST`.
+websites," the only control you need is `whitelist_hosts`.
 
 If you want a non-default config location, `./setup.sh producer /path/to/config.toml`
 will create that file automatically when it does not exist yet.
@@ -195,7 +195,6 @@ Before building a release for users, update
 - the real registry repo URL
 - the signer fingerprint list
 - the signer public key block list
-- the `WHITELIST` host/path policy
 
 Then build:
 

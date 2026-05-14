@@ -2,7 +2,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { isPathAllowedForHost, urlToPath, rewriteHtml } from '../src/background/serve.js';
+import { urlToPath, rewriteHtml } from '../src/background/serve.js';
 import { SERVE_PATH } from '../src/config.js';
 
 describe('serve: urlToPath', () => {
@@ -101,30 +101,6 @@ describe('serve: rewriteHtml — absolute URL rewrites', () => {
   it('does not rewrite absolute hosts when no siteHost is provided', () => {
     const out = rewriteHtml('<a href="https://example.com/news">x</a>');
     assert.match(out, /href="https:\/\/example\.com\/news"/);
-  });
-});
-
-describe('serve: whitelist path policy', () => {
-  const whitelist = {
-    'bbc.com': {
-      paths: ['/news', '/news/*'],
-    },
-  };
-
-  it('allows exact path matches', () => {
-    assert.equal(isPathAllowedForHost('news', 'bbc.com', whitelist), true);
-  });
-
-  it('allows wildcard prefix matches', () => {
-    assert.equal(isPathAllowedForHost('news/world/index.html', 'bbc.com', whitelist), true);
-  });
-
-  it('rejects out-of-policy paths', () => {
-    assert.equal(isPathAllowedForHost('sport/index.html', 'bbc.com', whitelist), false);
-  });
-
-  it('rejects unknown hosts', () => {
-    assert.equal(isPathAllowedForHost('news/index.html', 'unknown.com', whitelist), false);
   });
 });
 
